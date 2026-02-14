@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZStack AI Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-title">
+      <span class="logo">⚡</span>
+      <span>ZStack AI</span>
+    </div>
+    <div class="header-actions">
+      <button id="btn-clear" class="icon-btn" title="清空对话">🗑️</button>
+      <button id="btn-settings" class="icon-btn" title="设置">⚙️</button>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div id="status-bar" class="status-bar disconnected">
+    <span class="status-dot"></span>
+    <span id="status-text">未连接</span>
+  </div>
+
+  <!-- Settings panel -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-section">
+      <h3>ZStack 连接</h3>
+      <div class="field">
+        <label>API 地址</label>
+        <input type="text" id="zstack-endpoint" placeholder="http://172.24.245.30:8080">
+      </div>
+      <div class="field">
+        <label>账号</label>
+        <input type="text" id="zstack-account" placeholder="admin" value="admin">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input type="password" id="zstack-password" placeholder="password">
+      </div>
+      <button id="btn-connect" class="btn btn-primary">连接</button>
+    </div>
+    <div class="settings-section">
+      <h3>AI 模型</h3>
+      <div class="field">
+        <label>提供商</label>
+        <select id="llm-provider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic (Claude)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>API Base URL（可选，留空用官方地址）</label>
+        <input type="text" id="llm-baseurl" placeholder="https://api.openai.com">
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="llm-apikey" placeholder="sk-...">
+      </div>
+      <div class="field">
+        <label>模型</label>
+        <input type="text" id="llm-model" placeholder="gpt-4o-mini">
+      </div>
+      <button id="btn-save-llm" class="btn">保存</button>
+    </div>
+  </div>
+
+  <!-- Chat area -->
+  <div id="chat-area" class="chat-area">
+    <div class="welcome-msg">
+      <div class="welcome-icon">⚡</div>
+      <p>ZStack AI 运维助手</p>
+      <p class="welcome-sub">配置连接后，用自然语言管理你的云平台</p>
+      <div class="quick-actions">
+        <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
+        <button class="quick-btn" data-msg="帮我创建一台云主机">➕ 创建云主机</button>
+        <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
+        <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input area -->
+  <div class="input-area">
+    <div class="input-wrapper">
+      <textarea id="input" placeholder="输入指令，如：帮我起一台 CentOS 云主机" rows="1"></textarea>
+      <button id="btn-send" class="send-btn" disabled>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
