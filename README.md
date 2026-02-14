@@ -14,18 +14,20 @@
 ## 项目结构
 
 ```
-├── manifest.json        # Chrome Extension Manifest V3 配置
-├── background.js        # Service Worker，处理扩展图标点击与页面检测消息
-├── content.js           # Content Script，自动检测当前页面是否为 ZStack UI
-├── sidepanel.html       # 侧边栏面板 HTML
-├── sidepanel.css        # 侧边栏样式
-├── sidepanel.js         # 侧边栏主逻辑（聊天交互、设置管理、消息流处理）
-├── lib/
-│   ├── zstack.js        # ZStack API 客户端（登录、通用 CRUD、快捷方法）
-│   └── llm.js           # LLM 引擎（OpenAI/Anthropic 双协议、Tool Calling 循环、系统提示词）
-├── icons/               # 扩展图标（16/48/128px）
-└── test/
-    └── integration.mjs  # 集成测试（API 连通性、资源查询、LLM Tool Calling 端到端验证）
+├── README.md
+└── extension/               # Chrome 扩展源码
+    ├── manifest.json        # Chrome Extension Manifest V3 配置
+    ├── background.js        # Service Worker，处理扩展图标点击与页面检测消息
+    ├── content.js           # Content Script，自动检测当前页面是否为 ZStack UI
+    ├── sidepanel.html       # 侧边栏面板 HTML
+    ├── sidepanel.css        # 侧边栏样式
+    ├── sidepanel.js         # 侧边栏主逻辑（聊天交互、设置管理、消息流处理）
+    ├── lib/
+    │   ├── zstack.js        # ZStack API 客户端（登录、通用 CRUD、快捷方法）
+    │   └── llm.js           # LLM 引擎（OpenAI/Anthropic 双协议、Tool Calling 循环、系统提示词）
+    ├── icons/               # 扩展图标（16/48/128px）
+    └── test/
+        └── integration.mjs  # 集成测试（API 连通性、资源查询、LLM Tool Calling 端到端验证）
 ```
 
 ## 安装与使用
@@ -34,7 +36,7 @@
 
 1. 打开 Chrome，访问 `chrome://extensions/`
 2. 开启右上角「开发者模式」
-3. 点击「加载已解压的扩展程序」，选择本项目根目录
+3. 点击「加载已解压的扩展程序」，选择项目中的 `extension` 目录
 
 ### 2. 配置连接
 
@@ -58,7 +60,7 @@
 集成测试需要可访问的 ZStack 环境和 LLM API：
 
 ```bash
-node test/integration.mjs
+node extension/test/integration.mjs
 ```
 
 测试覆盖：登录认证、全资源类型查询、条件过滤、ZQL、UUID 查询、LLM 连通性、Tool Calling 流程、端到端多轮对话。
