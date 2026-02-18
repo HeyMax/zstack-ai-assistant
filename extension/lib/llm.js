@@ -19,13 +19,13 @@ export class LLMEngine {
 
   clearHistory() { this.messages = []; }
 
-  // Default base URLs per provider
+  // Default base URLs per provider (include version path)
   static BASE_URLS = {
-    openai: 'https://api.openai.com',
-    anthropic: 'https://api.anthropic.com',
-    glm: 'https://open.bigmodel.cn/api/paas',
-    deepseek: 'https://api.deepseek.com',
-    qwen: 'https://dashscope.aliyuncs.com/compatible-mode'
+    openai: 'https://api.openai.com/v1',
+    anthropic: 'https://api.anthropic.com/v1',
+    glm: 'https://open.bigmodel.cn/api/paas/v4',
+    deepseek: 'https://api.deepseek.com/v1',
+    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
   };
 
   // Providers that use OpenAI-compatible API format
@@ -95,7 +95,7 @@ export class LLMEngine {
   async _callOpenAI() {
     const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
     const base = this.baseUrl || defaultBase;
-    const url = `${base.replace(/\/$/, '')}/v1/chat/completions`;
+    const url = `${base.replace(/\/$/, '')}/chat/completions`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
@@ -120,7 +120,7 @@ export class LLMEngine {
   async _callAnthropic() {
     const defaultBase = LLMEngine.BASE_URLS.anthropic;
     const base = this.baseUrl || defaultBase;
-    const url = `${base.replace(/\/$/, '')}/v1/messages`;
+    const url = `${base.replace(/\/$/, '')}/messages`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {

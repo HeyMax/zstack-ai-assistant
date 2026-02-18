@@ -143,7 +143,7 @@ function bindQuickButtons() {
 const PROVIDER_MODELS = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o3-mini'],
   anthropic: ['claude-opus-4-6', 'claude-sonnet-4', 'claude-haiku-3.5'],
-  glm: ['glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-4-long'],
+  glm: ['GLM-5', 'glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-4-long'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo']
 };
