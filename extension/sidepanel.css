@@ -57,6 +57,54 @@ body {
   background: rgba(255,255,255,0.15);
 }
 
+/* Mode toggle */
+.mode-toggle {
+  margin-left: auto;
+  position: relative;
+}
+
+.mode-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: inherit;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+.mode-btn.full-mode {
+  background: rgba(251,191,36,0.2);
+  border-color: rgba(251,191,36,0.4);
+}
+
+.mode-tooltip {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  background: white;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  width: 260px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 10;
+  line-height: 1.5;
+}
+
+.mode-tooltip.hidden { display: none; }
+.mode-tooltip p { margin-bottom: 6px; }
+.mode-tooltip p:last-child { margin-bottom: 0; }
+
 /* Status bar */
 .status-bar {
   display: flex;

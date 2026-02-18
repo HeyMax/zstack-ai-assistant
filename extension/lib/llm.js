@@ -7,17 +7,26 @@ export class LLMEngine {
     this.model = 'gpt-4o-mini';
     this.messages = [];
     this.zstackClient = null;
+    this.queryMode = 'compact';
   }
 
-  configure({ apiKey, baseUrl, provider, model, zstackClient }) {
+  configure({ apiKey, baseUrl, provider, model, zstackClient, queryMode }) {
     if (apiKey) this.apiKey = apiKey;
     if (baseUrl !== undefined) this.baseUrl = baseUrl;
     if (provider) this.provider = provider;
     if (model) this.model = model;
     if (zstackClient) this.zstackClient = zstackClient;
+    if (queryMode) this.queryMode = queryMode;
   }
 
   clearHistory() { this.messages = []; }
+
+  _systemPrompt() {
+    const modeInstructions = this.queryMode === 'full'
+      ? QUERY_MODE_FULL
+      : QUERY_MODE_COMPACT;
+    return SYSTEM_PROMPT_BASE + '\n' + modeInstructions;
+  }
 
   // Default base URLs per provider (include version path)
   static BASE_URLS = {
@@ -101,7 +110,7 @@ export class LLMEngine {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
       body: JSON.stringify({
         model: this.model,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...this.messages],
+        messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
         tools: TOOLS,
         tool_choice: 'auto',
         max_tokens: 4096
@@ -131,7 +140,7 @@ export class LLMEngine {
       },
       body: JSON.stringify({
         model: this.model,
-        system: SYSTEM_PROMPT,
+        system: this._systemPrompt(),
         messages: this.messages,
         tools: TOOLS_ANTHROPIC,
         max_tokens: 4096
@@ -203,15 +212,12 @@ export class LLMEngine {
 }
 
 // ========== System Prompt ==========
-const SYSTEM_PROMPT = `你是 ZStack 云平台智能运维助手，拥有完整的 ZStack API 访问能力。
+const SYSTEM_PROMPT_BASE = `你是 ZStack 云平台智能运维助手，拥有完整的 ZStack API 访问能力。
 
 ## 回复风格（必须遵守）
-- 查询资源时，先给出分类概览统计（如：总数 X 台，运行中 Y，已停止 Z，其它 W），再展示表格
-- 获取概览的方法：用 ZQL 的 count 语法，例如 count vminstance、count vminstance where state='Running'、count vminstance where state='Stopped'，分别统计各状态数量
 - 查询结果直接用表格展示，不要加多余的开场白、道歉、解释或建议
 - 不要说"让我整理一下"、"抱歉让您久等"、"如果需要我可以"之类的废话
 - 用户没问就不要主动提建议
-- 结果超过20条时，展示前20条并说明总数，问用户是否需要看更多
 - 表格只展示关键字段：名称、状态、IP、CPU、内存，不要把所有字段都列出来
 - 操作成功就说"已完成"，失败就说原因，简洁明了
 
@@ -287,6 +293,20 @@ Action 操作 body 格式为 { "actionName": { ...params } }，例如：
 ## 回复规范
 - 用中文回复
 - 危险操作（删除、停机）需要明确提醒`;
+
+const QUERY_MODE_COMPACT = `
+## 当前查询模式：⚡ 精简模式
+- 查询资源时，先用 ZQL count 统计各状态数量，给出概览（如：总数 X 台，运行中 Y，已停止 Z，其它 W）
+- 然后展示前20条记录的表格
+- 告知用户总数，问是否需要查看更多
+- 这是省 token 的高效模式`;
+
+const QUERY_MODE_FULL = `
+## 当前查询模式：📋 全量模式
+- 查询资源时，先用 ZQL count 统计各状态数量，给出概览
+- 然后分批查询所有记录（每批100条），全部展示在表格中
+- 不需要问用户是否查看更多，直接展示全部
+- 注意：大量资源时会消耗较多 token`;
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [

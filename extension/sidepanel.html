@@ -23,6 +23,13 @@
   <div id="status-bar" class="status-bar disconnected">
     <span class="status-dot"></span>
     <span id="status-text">未连接</span>
+    <div class="mode-toggle">
+      <button id="btn-mode" class="mode-btn" title="点击切换查询模式">⚡ 精简</button>
+      <div id="mode-tooltip" class="mode-tooltip hidden">
+        <p><b>⚡ 精简模式</b>：先统计概览，再展示前20条，按需翻页。省 token，响应快。</p>
+        <p><b>📋 全量模式</b>：一次查询所有记录并完整展示。消耗 token 多，适合导出或全面分析。</p>
+      </div>
+    </div>
   </div>
 
   <!-- Settings panel -->

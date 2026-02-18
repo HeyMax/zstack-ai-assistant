@@ -17,6 +17,7 @@ const statusBar = document.getElementById('status-bar');
 const statusText = document.getElementById('status-text');
 
 let isProcessing = false;
+let queryMode = 'compact'; // 'compact' or 'full'
 
 // --- Init ---
 async function init() {
@@ -34,7 +35,7 @@ async function loadSettings() {
   const data = await chrome.storage.local.get([
     'zstackEndpoint', 'zstackAccount', 'zstackPassword',
     'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
-    'initialized'
+    'initialized', 'queryMode'
   ]);
 
   // First run: pre-fill with defaults from OpenClaw config
@@ -44,7 +45,8 @@ async function loadSettings() {
       llmProvider: 'anthropic',
       llmBaseUrl: 'https://cdr.digiman.live/claude-kiro-oauth',
       llmApiKey: '123456',
-      llmModel: 'claude-opus-4-6'
+      llmModel: 'claude-opus-4-6',
+      queryMode: 'compact'
     });
     data.llmProvider = 'anthropic';
     data.llmBaseUrl = 'https://cdr.digiman.live/claude-kiro-oauth';
@@ -59,6 +61,10 @@ async function loadSettings() {
   if (data.llmBaseUrl) document.getElementById('llm-baseurl').value = data.llmBaseUrl;
   if (data.llmApiKey) document.getElementById('llm-apikey').value = data.llmApiKey;
   if (data.llmModel) document.getElementById('llm-model').value = data.llmModel;
+
+  // Load query mode
+  queryMode = data.queryMode || 'compact';
+  updateModeButton();
 
   // Update LLM model placeholder based on provider
   updateModelPlaceholder();
@@ -97,6 +103,18 @@ function setupEventListeners() {
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
 
+  // Mode toggle
+  const btnMode = document.getElementById('btn-mode');
+  const modeTooltip = document.getElementById('mode-tooltip');
+  btnMode.addEventListener('click', async () => {
+    queryMode = queryMode === 'compact' ? 'full' : 'compact';
+    await chrome.storage.local.set({ queryMode });
+    updateModeButton();
+    configureLLM();
+  });
+  btnMode.addEventListener('mouseenter', () => modeTooltip.classList.remove('hidden'));
+  btnMode.addEventListener('mouseleave', () => modeTooltip.classList.add('hidden'));
+
   document.getElementById('llm-provider').addEventListener('change', updateModelPlaceholder);
 
   // Model select: show/hide custom input
@@ -128,6 +146,17 @@ function setupEventListeners() {
 
   btnSend.addEventListener('click', sendMessage);
   bindQuickButtons();
+}
+
+function updateModeButton() {
+  const btn = document.getElementById('btn-mode');
+  if (queryMode === 'full') {
+    btn.textContent = '📋 全量';
+    btn.classList.add('full-mode');
+  } else {
+    btn.textContent = '⚡ 精简';
+    btn.classList.remove('full-mode');
+  }
 }
 
 function bindQuickButtons() {
@@ -234,7 +263,7 @@ function configureLLM() {
   const modelInput = document.getElementById('llm-model').value.trim();
   const model = (modelSelect === '__custom__' ? modelInput : modelSelect) || PROVIDER_DEFAULTS[provider];
 
-  llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack });
+  llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack, queryMode });
 }
 
 async function saveLLMSettings() {
