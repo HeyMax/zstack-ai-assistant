@@ -166,20 +166,23 @@ export class LLMEngine {
     if (!cli || !cli.isLoggedIn()) return { error: '未连接到 ZStack，请先配置并登录' };
 
     try {
+      // Auto-prepend v1/ to resource_path if missing
+      const fixPath = (p) => p && !p.startsWith('v1/') ? `v1/${p}` : p;
+      
       switch (name) {
         // === Generic API ===
         case 'zstack_query':
-          return await cli.query(args.resource_path, args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
+          return await cli.query(fixPath(args.resource_path), args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
         case 'zstack_get':
-          return await cli.get(args.resource_path, args.uuid);
+          return await cli.get(fixPath(args.resource_path), args.uuid);
         case 'zstack_create':
-          return await cli.create(args.resource_path, args.body);
+          return await cli.create(fixPath(args.resource_path), args.body);
         case 'zstack_delete':
-          return await cli.remove(args.resource_path, args.uuid, args.delete_mode || 'Permissive');
+          return await cli.remove(fixPath(args.resource_path), args.uuid, args.delete_mode || 'Permissive');
         case 'zstack_action':
-          return await cli.action(args.resource_path, args.uuid, args.body);
+          return await cli.action(fixPath(args.resource_path), args.uuid, args.body);
         case 'zstack_update':
-          return await cli.update(args.resource_path, args.uuid, args.body);
+          return await cli.update(fixPath(args.resource_path), args.uuid, args.body);
         case 'zstack_zql':
           return await cli.zql(args.zql);
 
@@ -242,7 +245,7 @@ const SYSTEM_PROMPT_BASE = `你是 ZStack 云平台智能运维助手，拥有�
 
 ## 通用 API 工具
 对于上面列出的所有资源以及未列出的资源，你都可以使用通用 API 工具(zstack_query/zstack_create/zstack_delete/zstack_action/zstack_update)来操作。
-resource_path 就是 API 路径去掉 "v1/" 前缀后的部分，例如 "vm-instances"、"load-balancers/listeners"。
+resource_path 为资源路径，例如 "vm-instances"、"load-balancers/listeners"、"hosts"。系统会自动补全 v1/ 前缀。
 
 ## ZQL 查询
 ZStack 支持 ZQL (ZStack Query Language)，语法类似 SQL：
@@ -253,12 +256,18 @@ ZStack 支持 ZQL (ZStack Query Language)，语法类似 SQL：
 - count vminstance where state='Running'  → 按条件统计数量
 对于复杂查询，优先使用 ZQL。
 
-⚠️ **ZQL 语法关键规则**：所有字符串值必须用单引号包裹！
-- ✅ 正确: count vminstance where state='Running'
-- ❌ 错误: count vminstance where state=Running （会报错！）
-- ✅ 正确: query host where status='Connected'
-- ❌ 错误: query host where status=Connected
-只有纯数字值不需要引号，其他所有值（状态、名称、UUID等）都必须加单引号。
+⚠️ **ZQL 语法关键规则**：
+1. 所有字符串值必须用单引号包裹！
+   - ✅ 正确: count vminstance where state='Running'
+   - ❌ 错误: count vminstance where state=Running （会报错！）
+2. 分页用 **offset** 不是 start！
+   - ✅ 正确: query vminstance limit 100 offset 100
+   - ❌ 错误: query vminstance limit 100 start 100 （会报错！）
+3. ZQL 实体名与 API 路径不同，常用映射：
+   vminstance, host, image, l3network, l2network, volume, volumesnapshot,
+   instanceoffering, diskoffering, primarystorage, backupstorage,
+   zone, cluster, vip, eip, securitygroup, loadbalancer,
+   appliancevm(VPC路由器), account, managementnode, vmnic, globalconfig
 
 ## ⚠️ 分页警告（极其重要）
 ZStack API 默认每次最多返回100条记录（分页）。这意味着：
@@ -328,6 +337,7 @@ const QUERY_MODE_FULL = `
 2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
 3. 第三步：分批查询并展示全部数据：
    - 每批用 zstack_query（limit=100, start=0/100/200/...）翻页获取
+   - 或用 ZQL 翻页：query vminstance limit 100 offset 0, query vminstance limit 100 offset 100, ...
    - 每批数据立即用表格展示，表格包含：序号、名称、状态、IP、关键属性
    - 持续翻页直到获取全部数据，不要中途停下来问用户
 4. 如果总数超过 500 条，先展示前 500 条，然后告知用户剩余数量并询问是否继续
