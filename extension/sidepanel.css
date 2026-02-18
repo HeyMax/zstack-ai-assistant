@@ -447,3 +447,145 @@ body {
   font-style: italic;
   padding: 6px 10px !important;
 }
+
+/* Markdown content in assistant messages */
+.message.assistant .message-bubble {
+  white-space: normal;
+}
+
+.message.assistant .message-bubble p {
+  margin: 0 0 8px 0;
+}
+
+.message.assistant .message-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant .message-bubble table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 12px;
+  display: block;
+  overflow-x: auto;
+}
+
+.message.assistant .message-bubble th,
+.message.assistant .message-bubble td {
+  border: 1px solid #d1d5db;
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.message.assistant .message-bubble th {
+  background: #f3f4f6;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+
+.message.assistant .message-bubble tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+.message.assistant .message-bubble pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  position: relative;
+}
+
+.message.assistant .message-bubble pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.message.assistant .message-bubble code {
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.message.assistant .message-bubble ul,
+.message.assistant .message-bubble ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.message.assistant .message-bubble li {
+  margin: 2px 0;
+}
+
+.message.assistant .message-bubble strong {
+  font-weight: 600;
+}
+
+.message.assistant .message-bubble h1,
+.message.assistant .message-bubble h2,
+.message.assistant .message-bubble h3 {
+  margin: 10px 0 6px 0;
+  font-weight: 600;
+}
+
+.message.assistant .message-bubble h1 { font-size: 16px; }
+.message.assistant .message-bubble h2 { font-size: 15px; }
+.message.assistant .message-bubble h3 { font-size: 14px; }
+
+.message.assistant .message-bubble blockquote {
+  border-left: 3px solid #3b82f6;
+  padding-left: 10px;
+  margin: 6px 0;
+  color: #6b7280;
+}
+
+.message.assistant .message-bubble hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 8px 0;
+}
+
+/* Copy button */
+.msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.message:hover .msg-actions {
+  opacity: 1;
+}
+
+.msg-action-btn {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.msg-action-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+/* Timestamp */
+.msg-time {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-top: 2px;
+}

@@ -4,6 +4,23 @@ import { LLMEngine } from './lib/llm.js';
 const zstack = new ZStackClient();
 const llm = new LLMEngine();
 
+// Markdown renderer setup
+const md = typeof marked !== 'undefined' ? marked : null;
+if (md) {
+  md.setOptions({ breaks: true, gfm: true });
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  if (md) {
+    const raw = md.parse(text);
+    return typeof DOMPurify !== 'undefined'
+      ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td'] })
+      : raw;
+  }
+  return escapeHtml(text);
+}
+
 // DOM elements
 const chatArea = document.getElementById('chat-area');
 const input = document.getElementById('input');
@@ -17,12 +34,14 @@ const statusBar = document.getElementById('status-bar');
 const statusText = document.getElementById('status-text');
 
 let isProcessing = false;
-let queryMode = 'compact'; // 'compact' or 'full'
+let queryMode = 'compact';
+let chatHistory = []; // { role, text, time }
 
 // --- Init ---
 async function init() {
   await loadSettings();
   setupEventListeners();
+  await loadChatHistory();
   // Try auto-detect ZStack endpoint
   chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
     if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
@@ -83,8 +102,10 @@ function setupEventListeners() {
     settingsPanel.classList.toggle('hidden');
   });
 
-  btnClear.addEventListener('click', () => {
+  btnClear.addEventListener('click', async () => {
     llm.clearHistory();
+    chatHistory = [];
+    await chrome.storage.local.remove('chatHistory');
     chatArea.innerHTML = `
       <div class="welcome-msg">
         <div class="welcome-icon">⚡</div>
@@ -290,7 +311,6 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text || isProcessing) return;
 
-  // Check prerequisites
   if (!zstack.isLoggedIn()) {
     showError('请先连接 ZStack（点击 ⚙️ 配置）');
     return;
@@ -300,33 +320,34 @@ async function sendMessage() {
     return;
   }
 
-  // Clear welcome message
   const welcome = chatArea.querySelector('.welcome-msg');
   if (welcome) welcome.remove();
 
-  // Add user message
-  appendMessage('user', text);
+  const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  appendMessage('user', text, now);
+  chatHistory.push({ role: 'user', text, time: now });
+
   input.value = '';
   input.style.height = 'auto';
   btnSend.disabled = true;
   isProcessing = true;
 
-  // Add typing indicator
   const typingEl = appendTyping();
   let assistantBubble = null;
   let toolIndicator = null;
+  let accumulatedText = '';
 
   try {
     const response = await llm.chat(text, (event) => {
       if (event.type === 'text') {
-        // Remove typing/tool indicators on first text
         if (typingEl.parentNode) typingEl.remove();
         if (toolIndicator?.parentNode) toolIndicator.remove();
 
+        accumulatedText += event.text;
         if (!assistantBubble) {
-          assistantBubble = appendMessage('assistant', '');
+          assistantBubble = appendMessage('assistant', '', now);
         }
-        assistantBubble.querySelector('.message-bubble').textContent += event.text;
+        assistantBubble.querySelector('.message-bubble').innerHTML = renderMarkdown(accumulatedText);
         scrollToBottom();
       }
       if (event.type === 'tool_start') {
@@ -339,17 +360,20 @@ async function sendMessage() {
         chatArea.appendChild(toolIndicator);
         scrollToBottom();
       }
-      if (event.type === 'tool_done') {
-        // Keep indicator until next round or final text
-      }
     });
 
-    // If no streaming happened, show the full response
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
-    if (!assistantBubble && response) {
-      appendMessage('assistant', response);
+
+    const finalText = accumulatedText || response || '';
+    if (!assistantBubble && finalText) {
+      assistantBubble = appendMessage('assistant', finalText, now);
+    } else if (assistantBubble && finalText) {
+      assistantBubble.querySelector('.message-bubble').innerHTML = renderMarkdown(finalText);
     }
+
+    chatHistory.push({ role: 'assistant', text: finalText, time: now });
+    saveChatHistory();
   } catch (e) {
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
@@ -362,10 +386,42 @@ async function sendMessage() {
 }
 
 // --- UI Helpers ---
-function appendMessage(role, text) {
+function appendMessage(role, text, time) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
-  div.innerHTML = `<div class="message-bubble">${escapeHtml(text)}</div>`;
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble';
+  if (role === 'assistant' && text) {
+    bubble.innerHTML = renderMarkdown(text);
+  } else {
+    bubble.textContent = text;
+  }
+  div.appendChild(bubble);
+
+  // Actions row (copy + timestamp)
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+  if (role === 'assistant') {
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-action-btn';
+    copyBtn.textContent = '📋 复制';
+    copyBtn.addEventListener('click', () => {
+      const raw = text || bubble.textContent;
+      navigator.clipboard.writeText(raw).then(() => {
+        copyBtn.textContent = '✅ 已复制';
+        setTimeout(() => copyBtn.textContent = '📋 复制', 1500);
+      });
+    });
+    actions.appendChild(copyBtn);
+  }
+  if (time) {
+    const ts = document.createElement('span');
+    ts.className = 'msg-time';
+    ts.textContent = time;
+    actions.appendChild(ts);
+  }
+  div.appendChild(actions);
+
   chatArea.appendChild(div);
   scrollToBottom();
   return div;
@@ -402,6 +458,33 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// --- Chat History Persistence ---
+async function saveChatHistory() {
+  // Keep last 50 messages to avoid storage bloat
+  const toSave = chatHistory.slice(-50);
+  await chrome.storage.local.set({ chatHistory: toSave });
+}
+
+async function loadChatHistory() {
+  const data = await chrome.storage.local.get('chatHistory');
+  if (!data.chatHistory || data.chatHistory.length === 0) return;
+
+  chatHistory = data.chatHistory;
+  const welcome = chatArea.querySelector('.welcome-msg');
+  if (welcome) welcome.remove();
+
+  for (const msg of chatHistory) {
+    appendMessage(msg.role, msg.text, msg.time);
+    // Restore LLM context
+    if (msg.role === 'user') {
+      llm.messages.push({ role: 'user', content: msg.text });
+    } else if (msg.role === 'assistant') {
+      llm.messages.push({ role: 'assistant', content: msg.text });
+    }
+  }
+  scrollToBottom();
 }
 
 // --- Start ---
