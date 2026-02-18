@@ -15,15 +15,32 @@ function renderMarkdown(text) {
   if (md) {
     const raw = md.parse(text);
     let html = typeof DOMPurify !== 'undefined'
-      ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td','button'], ADD_ATTR: ['class','data-code'] })
+      ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td'] })
       : raw;
-    // Add copy buttons to code blocks
-    html = html.replace(/<pre><code(.*?)>([\s\S]*?)<\/code><\/pre>/g, (match, attrs, code) => {
-      return `<div class="code-block-wrapper"><button class="code-copy-btn" onclick="this.textContent='✅';setTimeout(()=>this.textContent='📋',1500);navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent)">📋</button><pre><code${attrs}>${code}</code></pre></div>`;
-    });
     return html;
   }
   return escapeHtml(text);
+}
+
+// Add copy buttons to code blocks after DOM insertion
+function addCodeCopyButtons(container) {
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.parentElement?.classList.contains('code-block-wrapper')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block-wrapper';
+    pre.parentNode.insertBefore(wrapper, pre);
+    wrapper.appendChild(pre);
+    const btn = document.createElement('button');
+    btn.className = 'code-copy-btn';
+    btn.textContent = '📋';
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(pre.textContent).then(() => {
+        btn.textContent = '✅';
+        setTimeout(() => btn.textContent = '📋', 1500);
+      });
+    });
+    wrapper.insertBefore(btn, pre);
+  });
 }
 
 // DOM elements
@@ -357,6 +374,7 @@ async function sendMessage() {
           assistantBubble = appendMessage('assistant', '', now);
         }
         assistantBubble.querySelector('.message-bubble').innerHTML = renderMarkdown(accumulatedText);
+        addCodeCopyButtons(assistantBubble);
         scrollToBottom();
       }
       if (event.type === 'tool_start') {
@@ -379,6 +397,7 @@ async function sendMessage() {
       assistantBubble = appendMessage('assistant', finalText, now);
     } else if (assistantBubble && finalText) {
       assistantBubble.querySelector('.message-bubble').innerHTML = renderMarkdown(finalText);
+      addCodeCopyButtons(assistantBubble);
     }
 
     chatHistory.push({ role: 'assistant', text: finalText, time: now });
@@ -419,6 +438,7 @@ function appendMessage(role, text, time) {
     bubble.textContent = text;
   }
   div.appendChild(bubble);
+  if (role === 'assistant') addCodeCopyButtons(div);
 
   // Actions row (copy + timestamp)
   const actions = document.createElement('div');
