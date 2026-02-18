@@ -113,7 +113,7 @@ export class LLMEngine {
         messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 4096
+        max_tokens: 16384
       })
     });
     const data = await res.json();
@@ -143,7 +143,7 @@ export class LLMEngine {
         system: this._systemPrompt(),
         messages: this.messages,
         tools: TOOLS_ANTHROPIC,
-        max_tokens: 4096
+        max_tokens: 16384
       })
     });
     const data = await res.json();
@@ -317,10 +317,14 @@ const QUERY_MODE_FULL = `
 **查询资源的标准流程（必须严格遵守）：**
 1. 第一步：用 ZQL count 获取真实总数，如 "count vminstance"，按状态分别统计
 2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
-3. 第三步：分批查询所有记录（每批100条，用 start 参数翻页），全部展示在表格中
-4. 不需要问用户是否查看更多，直接展示全部
+3. 第三步：根据总数决定展示策略：
+   - **总数 ≤ 100**：直接查询全部，用完整表格展示（名称、UUID、状态、IP、规格等）
+   - **100 < 总数 ≤ 300**：分批查询（每批100条），用精简表格展示（只保留：序号、名称、状态、IP），不要输出UUID等长字段
+   - **总数 > 300**：先给出统计概览，然后告知用户"数据量较大（X条），建议按条件筛选（如按状态、集群、名称等），或者我可以分批展示前300条"。等用户确认后再操作
+4. 分批查询时，用 ZQL 的 limit/start 翻页：query vminstance limit 100 start 0, query vminstance limit 100 start 100, ...
+5. 不需要问用户是否查看更多（除非总数>300），直接展示全部
 ⚠️ 绝对禁止用 API 返回的数组长度当总数！API 默认只返回100条！
-注意：大量资源时会消耗较多 token`;
+⚠️ 表格行数过多时，优先减少列数来节省空间，确保数据不被截断`;
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
