@@ -14,9 +14,14 @@ function renderMarkdown(text) {
   if (!text) return '';
   if (md) {
     const raw = md.parse(text);
-    return typeof DOMPurify !== 'undefined'
-      ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td'] })
+    let html = typeof DOMPurify !== 'undefined'
+      ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td','button'], ADD_ATTR: ['class','data-code'] })
       : raw;
+    // Add copy buttons to code blocks
+    html = html.replace(/<pre><code(.*?)>([\s\S]*?)<\/code><\/pre>/g, (match, attrs, code) => {
+      return `<div class="code-block-wrapper"><button class="code-copy-btn" onclick="this.textContent='✅';setTimeout(()=>this.textContent='📋',1500);navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent)">📋</button><pre><code${attrs}>${code}</code></pre></div>`;
+    });
+    return html;
   }
   return escapeHtml(text);
 }
@@ -36,6 +41,7 @@ const statusText = document.getElementById('status-text');
 let isProcessing = false;
 let queryMode = 'compact';
 let chatHistory = []; // { role, text, time }
+let lastFailedMsg = null; // for retry
 
 // --- Init ---
 async function init() {
@@ -123,6 +129,9 @@ function setupEventListeners() {
 
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
+
+  // Export conversation
+  document.getElementById('btn-export').addEventListener('click', exportConversation);
 
   // Mode toggle
   const btnMode = document.getElementById('btn-mode');
@@ -377,7 +386,20 @@ async function sendMessage() {
   } catch (e) {
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
-    showError(e.message);
+    
+    // Auto-reconnect on session expiry
+    if (e.message.includes('session') || e.message.includes('401') || e.message.includes('login')) {
+      showError('会话已过期，正在重新连接...');
+      try {
+        await connectZStack();
+        showError('已重连，请重新发送');
+      } catch (re) {
+        showError('重连失败: ' + re.message);
+      }
+    } else {
+      lastFailedMsg = text;
+      showErrorWithRetry(e.message);
+    }
   }
 
   isProcessing = false;
@@ -443,6 +465,42 @@ function showError(msg) {
   chatArea.appendChild(div);
   scrollToBottom();
   setTimeout(() => div.remove(), 8000);
+}
+
+function showErrorWithRetry(msg) {
+  const div = document.createElement('div');
+  div.className = 'error-msg error-with-retry';
+  div.innerHTML = `<span>${escapeHtml(msg)}</span><button class="retry-btn" title="重试">🔄 重试</button>`;
+  div.querySelector('.retry-btn').addEventListener('click', () => {
+    div.remove();
+    if (lastFailedMsg) {
+      input.value = lastFailedMsg;
+      lastFailedMsg = null;
+      sendMessage();
+    }
+  });
+  chatArea.appendChild(div);
+  scrollToBottom();
+}
+
+function exportConversation() {
+  if (chatHistory.length === 0) {
+    showError('没有对话可导出');
+    return;
+  }
+  const lines = chatHistory.map(m => {
+    const prefix = m.role === 'user' ? '👤 用户' : '🤖 助手';
+    const time = m.time ? ` [${m.time}]` : '';
+    return `### ${prefix}${time}\n\n${m.text}\n`;
+  });
+  const md = `# ZStack AI 对话记录\n\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n${lines.join('\n---\n\n')}`;
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zstack-chat-${new Date().toISOString().slice(0,10)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function setStatus(state, text) {
