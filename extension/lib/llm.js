@@ -72,7 +72,7 @@ export class LLMEngine {
           response.toolCalls.map(async tc => ({
             type: 'tool_result',
             tool_use_id: tc.id,
-            content: JSON.stringify(await this._executeTool(tc.name, tc.input)).slice(0, 8000)
+            content: JSON.stringify(await this._executeTool(tc.name, tc.input)).slice(0, 30000)
           }))
         );
         this.messages.push({ role: 'user', content: results });
@@ -82,7 +82,7 @@ export class LLMEngine {
           response.toolCalls.map(async tc => ({
             role: 'tool',
             tool_call_id: tc.id,
-            content: JSON.stringify(await this._executeTool(tc.function.name, JSON.parse(tc.function.arguments))).slice(0, 8000)
+            content: JSON.stringify(await this._executeTool(tc.function.name, JSON.parse(tc.function.arguments))).slice(0, 30000)
           }))
         );
         results.forEach(r => this.messages.push(r));
@@ -205,6 +205,14 @@ export class LLMEngine {
 // ========== System Prompt ==========
 const SYSTEM_PROMPT = `你是 ZStack 云平台智能运维助手，拥有完整的 ZStack API 访问能力。
 
+## 回复风格（必须遵守）
+- 查询结果直接用表格展示，不要加多余的开场白、道歉、解释或建议
+- 不要说"让我整理一下"、"抱歉让您久等"、"如果需要我可以"之类的废话
+- 用户没问就不要主动提建议
+- 结果超过20条时，展示前20条并说明总数，问用户是否需要看更多
+- 表格只展示关键字段：名称、状态、IP、CPU、内存，不要把所有字段都列出来
+- 操作成功就说"已完成"，失败就说原因，简洁明了
+
 ## 核心能力
 你可以通过工具管理 ZStack 云平台的所有资源，包括但不限于：
 
@@ -276,8 +284,6 @@ Action 操作 body 格式为 { "actionName": { ...params } }，例如：
 
 ## 回复规范
 - 用中文回复
-- 操作前确认关键信息
-- 查询结果用表格或列表展示关键字段
 - 危险操作（删除、停机）需要明确提醒`;
 
 // ========== Tool Definitions (OpenAI format) ==========
