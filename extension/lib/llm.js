@@ -77,21 +77,23 @@ export class LLMEngine {
       // Execute tool calls in parallel
       if (this.provider === 'anthropic') {
         this.messages.push({ role: 'assistant', content: response.rawContent });
+        const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
         const results = await Promise.all(
           response.toolCalls.map(async tc => ({
             type: 'tool_result',
             tool_use_id: tc.id,
-            content: JSON.stringify(await this._executeTool(tc.name, tc.input)).slice(0, 30000)
+            content: JSON.stringify(await this._executeTool(tc.name, tc.input)).slice(0, truncateLimit)
           }))
         );
         this.messages.push({ role: 'user', content: results });
       } else {
         this.messages.push(response.rawMessage);
+        const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
         const results = await Promise.all(
           response.toolCalls.map(async tc => ({
             role: 'tool',
             tool_call_id: tc.id,
-            content: JSON.stringify(await this._executeTool(tc.function.name, JSON.parse(tc.function.arguments))).slice(0, 30000)
+            content: JSON.stringify(await this._executeTool(tc.function.name, JSON.parse(tc.function.arguments))).slice(0, truncateLimit)
           }))
         );
         results.forEach(r => this.messages.push(r));
@@ -251,6 +253,13 @@ ZStack 支持 ZQL (ZStack Query Language)，语法类似 SQL：
 - count vminstance where state='Running'  → 按条件统计数量
 对于复杂查询，优先使用 ZQL。
 
+⚠️ **ZQL 语法关键规则**：所有字符串值必须用单引号包裹！
+- ✅ 正确: count vminstance where state='Running'
+- ❌ 错误: count vminstance where state=Running （会报错！）
+- ✅ 正确: query host where status='Connected'
+- ❌ 错误: query host where status=Connected
+只有纯数字值不需要引号，其他所有值（状态、名称、UUID等）都必须加单引号。
+
 ## ⚠️ 分页警告（极其重要）
 ZStack API 默认每次最多返回100条记录（分页）。这意味着：
 - zstack_query 返回的数组长度最多100，**绝对不能**用数组长度当作资源总数！
@@ -317,14 +326,13 @@ const QUERY_MODE_FULL = `
 **查询资源的标准流程（必须严格遵守）：**
 1. 第一步：用 ZQL count 获取真实总数，如 "count vminstance"，按状态分别统计
 2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
-3. 第三步：根据总数决定展示策略：
-   - **总数 ≤ 100**：直接查询全部，用完整表格展示（名称、UUID、状态、IP、规格等）
-   - **100 < 总数 ≤ 300**：分批查询（每批100条），用精简表格展示（只保留：序号、名称、状态、IP），不要输出UUID等长字段
-   - **总数 > 300**：先给出统计概览，然后告知用户"数据量较大（X条），建议按条件筛选（如按状态、集群、名称等），或者我可以分批展示前300条"。等用户确认后再操作
-4. 分批查询时，用 ZQL 的 limit/start 翻页：query vminstance limit 100 start 0, query vminstance limit 100 start 100, ...
-5. 不需要问用户是否查看更多（除非总数>300），直接展示全部
+3. 第三步：分批查询并展示全部数据：
+   - 每批用 zstack_query（limit=100, start=0/100/200/...）翻页获取
+   - 每批数据立即用表格展示，表格包含：序号、名称、状态、IP、关键属性
+   - 持续翻页直到获取全部数据，不要中途停下来问用户
+4. 如果总数超过 500 条，先展示前 500 条，然后告知用户剩余数量并询问是否继续
 ⚠️ 绝对禁止用 API 返回的数组长度当总数！API 默认只返回100条！
-⚠️ 表格行数过多时，优先减少列数来节省空间，确保数据不被截断`;
+⚠️ 全量模式的核心目标是展示尽可能多的数据，不要缩减列数或行数`;
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
