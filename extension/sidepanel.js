@@ -99,6 +99,20 @@ function setupEventListeners() {
 
   document.getElementById('llm-provider').addEventListener('change', updateModelPlaceholder);
 
+  // Model select: show/hide custom input
+  document.getElementById('llm-model-select').addEventListener('change', () => {
+    const sel = document.getElementById('llm-model-select');
+    const inp = document.getElementById('llm-model');
+    if (sel.value === '__custom__') {
+      inp.style.display = '';
+      inp.value = '';
+      inp.focus();
+    } else {
+      inp.style.display = 'none';
+      inp.value = sel.value;
+    }
+  });
+
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
@@ -125,16 +139,58 @@ function bindQuickButtons() {
   });
 }
 
+// Provider preset models
+const PROVIDER_MODELS = {
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o3-mini'],
+  anthropic: ['claude-opus-4-6', 'claude-sonnet-4', 'claude-haiku-3.5'],
+  glm: ['glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-4-long'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo']
+};
+
+const PROVIDER_DEFAULTS = {
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-opus-4-6',
+  glm: 'glm-4-flash',
+  deepseek: 'deepseek-chat',
+  qwen: 'qwen-plus'
+};
+
 function updateModelPlaceholder() {
   const provider = document.getElementById('llm-provider').value;
+  const modelSelect = document.getElementById('llm-model-select');
   const modelInput = document.getElementById('llm-model');
-  if (provider === 'anthropic') {
-    modelInput.placeholder = 'claude-opus-4-6';
-    if (!modelInput.value) modelInput.value = '';
+  const models = PROVIDER_MODELS[provider] || [];
+  const defaultModel = PROVIDER_DEFAULTS[provider] || '';
+
+  // Rebuild select options
+  modelSelect.innerHTML = '';
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    modelSelect.appendChild(opt);
+  });
+  const customOpt = document.createElement('option');
+  customOpt.value = '__custom__';
+  customOpt.textContent = '自定义...';
+  modelSelect.appendChild(customOpt);
+
+  // If current input value matches a preset, select it; otherwise show custom
+  const currentVal = modelInput.value.trim();
+  if (currentVal && models.includes(currentVal)) {
+    modelSelect.value = currentVal;
+    modelInput.style.display = 'none';
+  } else if (currentVal) {
+    modelSelect.value = '__custom__';
+    modelInput.style.display = '';
   } else {
-    modelInput.placeholder = 'gpt-4o-mini';
-    if (!modelInput.value) modelInput.value = '';
+    modelSelect.value = models[0] || '__custom__';
+    modelInput.value = '';
+    modelInput.style.display = modelSelect.value === '__custom__' ? '' : 'none';
   }
+
+  modelInput.placeholder = defaultModel || '输入模型名';
 }
 
 // --- ZStack Connection ---
@@ -174,24 +230,20 @@ function configureLLM() {
   const provider = document.getElementById('llm-provider').value;
   const baseUrl = document.getElementById('llm-baseurl').value.trim();
   const apiKey = document.getElementById('llm-apikey').value.trim();
-  const model = document.getElementById('llm-model').value.trim();
+  const modelSelect = document.getElementById('llm-model-select').value;
+  const modelInput = document.getElementById('llm-model').value.trim();
+  const model = (modelSelect === '__custom__' ? modelInput : modelSelect) || PROVIDER_DEFAULTS[provider];
 
-  const defaults = { openai: 'gpt-4o-mini', anthropic: 'claude-opus-4-6' };
-
-  llm.configure({
-    apiKey,
-    baseUrl,
-    provider,
-    model: model || defaults[provider],
-    zstackClient: zstack
-  });
+  llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack });
 }
 
 async function saveLLMSettings() {
   const provider = document.getElementById('llm-provider').value;
   const baseUrl = document.getElementById('llm-baseurl').value.trim();
   const apiKey = document.getElementById('llm-apikey').value.trim();
-  const model = document.getElementById('llm-model').value.trim();
+  const modelSelect = document.getElementById('llm-model-select').value;
+  const modelInput = document.getElementById('llm-model').value.trim();
+  const model = modelSelect === '__custom__' ? modelInput : modelSelect;
 
   await chrome.storage.local.set({
     llmProvider: provider,

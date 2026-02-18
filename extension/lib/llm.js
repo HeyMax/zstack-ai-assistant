@@ -19,6 +19,18 @@ export class LLMEngine {
 
   clearHistory() { this.messages = []; }
 
+  // Default base URLs per provider
+  static BASE_URLS = {
+    openai: 'https://api.openai.com',
+    anthropic: 'https://api.anthropic.com',
+    glm: 'https://open.bigmodel.cn/api/paas',
+    deepseek: 'https://api.deepseek.com',
+    qwen: 'https://dashscope.aliyuncs.com/compatible-mode'
+  };
+
+  // Providers that use OpenAI-compatible API format
+  static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen']);
+
   async chat(userMessage, onEvent) {
     this.messages.push({ role: 'user', content: userMessage });
     const emit = (type, data) => { if (onEvent) onEvent({ type, ...data }); };
@@ -32,9 +44,11 @@ export class LLMEngine {
       }
       emit('status', { text: `思考中... (${i + 1})` });
 
-      const response = this.provider === 'anthropic'
-        ? await this._callAnthropic()
-        : await this._callOpenAI();
+      const response = LLMEngine.OPENAI_COMPAT.has(this.provider)
+        ? await this._callOpenAI()
+        : this.provider === 'anthropic'
+          ? await this._callAnthropic()
+          : await this._callOpenAI(); // fallback to OpenAI format
 
       if (!response.toolCalls || response.toolCalls.length === 0) {
         this.messages.push({ role: 'assistant', content: response.content });
@@ -79,9 +93,9 @@ export class LLMEngine {
   }
 
   async _callOpenAI() {
-    const url = this.baseUrl
-      ? `${this.baseUrl.replace(/\/$/, '')}/v1/chat/completions`
-      : 'https://api.openai.com/v1/chat/completions';
+    const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
+    const base = this.baseUrl || defaultBase;
+    const url = `${base.replace(/\/$/, '')}/v1/chat/completions`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
@@ -104,9 +118,9 @@ export class LLMEngine {
   }
 
   async _callAnthropic() {
-    const url = this.baseUrl
-      ? `${this.baseUrl.replace(/\/$/, '')}/v1/messages`
-      : 'https://api.anthropic.com/v1/messages';
+    const defaultBase = LLMEngine.BASE_URLS.anthropic;
+    const base = this.baseUrl || defaultBase;
+    const url = `${base.replace(/\/$/, '')}/v1/messages`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {

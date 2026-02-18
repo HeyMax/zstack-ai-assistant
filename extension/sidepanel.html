@@ -50,6 +50,9 @@
         <select id="llm-provider">
           <option value="openai">OpenAI</option>
           <option value="anthropic">Anthropic (Claude)</option>
+          <option value="glm">智谱 GLM</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="qwen">通义千问 (Qwen)</option>
         </select>
       </div>
       <div class="field">
@@ -62,7 +65,12 @@
       </div>
       <div class="field">
         <label>模型</label>
-        <input type="text" id="llm-model" placeholder="gpt-4o-mini">
+        <div class="model-combo">
+          <select id="llm-model-select">
+            <option value="">选择模型...</option>
+          </select>
+          <input type="text" id="llm-model" placeholder="或输入自定义模型名">
+        </div>
       </div>
       <button id="btn-save-llm" class="btn">保存</button>
     </div>

@@ -363,6 +363,22 @@ body {
 .send-btn:hover { background: #2563eb; }
 .send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
 
+/* Model combo (select + custom input) */
+.model-combo {
+  display: flex;
+  gap: 6px;
+}
+
+.model-combo select {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-combo input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Error message */
 .error-msg {
   background: #fef2f2;
