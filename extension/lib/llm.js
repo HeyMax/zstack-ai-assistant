@@ -247,7 +247,16 @@ ZStack 支持 ZQL (ZStack Query Language)，语法类似 SQL：
 - query vminstance where name='test'
 - query vminstance where clusterUuid='xxx' and state='Running'
 - query host where status='Connected' return with (vminstance)
+- count vminstance  → 返回资源总数（不受分页限制）
+- count vminstance where state='Running'  → 按条件统计数量
 对于复杂查询，优先使用 ZQL。
+
+## ⚠️ 分页警告（极其重要）
+ZStack API 默认每次最多返回100条记录（分页）。这意味着：
+- zstack_query 返回的数组长度最多100，**绝对不能**用数组长度当作资源总数！
+- 如果你看到返回了100条记录，真实总数很可能远大于100
+- **获取准确总数的唯一方法**：使用 ZQL count，例如 "count vminstance"
+- 查询资源时，**必须先用 ZQL count 获取真实总数**，再决定如何展示
 
 ## 常用 API 路径参考
 vm-instances, images, instance-offerings, disk-offerings, volumes, volume-snapshots, volume-backups,
@@ -296,17 +305,22 @@ Action 操作 body 格式为 { "actionName": { ...params } }，例如：
 
 const QUERY_MODE_COMPACT = `
 ## 当前查询模式：⚡ 精简模式
-- 查询资源时，先用 ZQL count 统计各状态数量，给出概览（如：总数 X 台，运行中 Y，已停止 Z，其它 W）
-- 然后展示前20条记录的表格
-- 告知用户总数，问是否需要查看更多
-- 这是省 token 的高效模式`;
+**查询资源的标准流程（必须严格遵守）：**
+1. 第一步：用 ZQL count 获取真实总数，如 "count vminstance"，按状态分别统计 "count vminstance where state='Running'" 等
+2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
+3. 第三步：用 zstack_query（limit=20）展示前20条记录的表格
+4. 第四步：告知用户"以上为前20条，共 X 条，需要查看更多吗？"
+⚠️ 绝对禁止用 API 返回的数组长度当总数！API 默认只返回100条！`;
 
 const QUERY_MODE_FULL = `
 ## 当前查询模式：📋 全量模式
-- 查询资源时，先用 ZQL count 统计各状态数量，给出概览
-- 然后分批查询所有记录（每批100条），全部展示在表格中
-- 不需要问用户是否查看更多，直接展示全部
-- 注意：大量资源时会消耗较多 token`;
+**查询资源的标准流程（必须严格遵守）：**
+1. 第一步：用 ZQL count 获取真实总数，如 "count vminstance"，按状态分别统计
+2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
+3. 第三步：分批查询所有记录（每批100条，用 start 参数翻页），全部展示在表格中
+4. 不需要问用户是否查看更多，直接展示全部
+⚠️ 绝对禁止用 API 返回的数组长度当总数！API 默认只返回100条！
+注意：大量资源时会消耗较多 token`;
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
@@ -412,7 +426,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'zstack_zql',
-      description: 'ZQL查询：使用 ZStack Query Language 执行复杂查询，语法类似SQL。如 "query vminstance where state=Running"',
+      description: 'ZQL查询：使用 ZStack Query Language 执行复杂查询。支持 query（查数据）和 count（统计数量）。示例："query vminstance where state=Running"、"count vminstance"、"count vminstance where state=Stopped"。⚠️ 查询资源前必须先用 count 获取真实总数，不要用 API 返回数组长度当总数！',
       parameters: {
         type: 'object',
         properties: {
