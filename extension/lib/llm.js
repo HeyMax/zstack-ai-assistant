@@ -182,25 +182,68 @@ export class LLMEngine {
     }
   }
 
+  // Models that don't support tool calling
+  static NO_TOOL_MODELS = new Set(['deepseek-reasoner', 'o1', 'o1-mini']);
+
+  // Build request body with provider-specific adjustments
+  _buildOpenAIBody(stream = true) {
+    const supportsTools = !LLMEngine.NO_TOOL_MODELS.has(this.model);
+    const body = {
+      model: this.model,
+      messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
+      stream
+    };
+
+    // max_tokens: use conservative default, some models have low limits
+    // DeepSeek uses max_tokens, Qwen compatible mode uses max_tokens too
+    body.max_tokens = 8192;
+
+    if (supportsTools) {
+      body.tools = TOOLS;
+      // tool_choice: some providers are strict about this
+      // GLM, MiniMax, Qwen all support 'auto'
+      body.tool_choice = 'auto';
+    }
+
+    return body;
+  }
+
   // ========== OpenAI-compatible Streaming ==========
   async _callOpenAIStream(emit, signal) {
     const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
     const base = this.baseUrl || defaultBase;
     const url = `${base.replace(/\/$/, '')}/chat/completions`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
-        tools: TOOLS,
-        tool_choice: 'auto',
-        max_tokens: 16384,
-        stream: true
-      }),
-      signal
-    });
+    const body = this._buildOpenAIBody(true);
+
+    // Try streaming first; if provider rejects, fall back to non-streaming
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
+        body: JSON.stringify(body),
+        signal
+      });
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      throw e;
+    }
+
+    // If streaming fails with certain errors, retry without streaming
+    if (!res.ok) {
+      const errText = await res.text();
+      let errMsg;
+      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
+
+      // Some providers reject stream+tools combo — fall back to non-streaming
+      const isStreamError = errMsg.toLowerCase().includes('stream') ||
+                            errMsg.toLowerCase().includes('not support');
+      if (isStreamError) {
+        return this._callOpenAINonStream(signal);
+      }
+      throw new Error(errMsg);
+    }
 
     if (!res.ok) {
       const errText = await res.text();
@@ -288,6 +331,43 @@ export class LLMEngine {
     };
   }
 
+  // ========== OpenAI Non-Streaming Fallback ==========
+  async _callOpenAINonStream(signal) {
+    const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
+    const base = this.baseUrl || defaultBase;
+    const url = `${base.replace(/\/$/, '')}/chat/completions`;
+
+    const body = this._buildOpenAIBody(false);
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
+      body: JSON.stringify(body),
+      signal
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      let errMsg;
+      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const msg = data.choices[0].message;
+    const toolCalls = msg.tool_calls?.map(tc => ({
+      ...tc,
+      type: tc.type || 'function'
+    })) || null;
+
+    return {
+      content: msg.content || '',
+      toolCalls: toolCalls?.length > 0 ? toolCalls : null,
+      rawMessage: { ...msg, tool_calls: toolCalls?.length > 0 ? toolCalls : undefined }
+    };
+  }
+
   // ========== Anthropic Streaming ==========
   async _callAnthropicStream(emit, signal) {
     const defaultBase = LLMEngine.BASE_URLS.anthropic;
@@ -307,7 +387,7 @@ export class LLMEngine {
         system: this._systemPrompt(),
         messages: this.messages,
         tools: TOOLS_ANTHROPIC,
-        max_tokens: 16384,
+        max_tokens: 8192,
         stream: true
       }),
       signal
