@@ -439,13 +439,42 @@ async function sendMessage() {
   const typingEl = appendTyping();
   let assistantBubble = null;
   let toolIndicator = null;
+  let thinkingEl = null;
+  let thinkingText = '';
   let accumulatedText = '';
 
   try {
     const response = await llm.chat(text, (event) => {
+      if (event.type === 'thinking_delta') {
+        if (typingEl.parentNode) typingEl.remove();
+        thinkingText += event.text;
+        if (!thinkingEl) {
+          thinkingEl = document.createElement('div');
+          thinkingEl.className = 'message assistant';
+          thinkingEl.innerHTML = `<div class="message-bubble thinking-bubble">
+            <details class="thinking-block" open>
+              <summary><span class="thinking-icon">💭</span> 思考中...</summary>
+              <div class="thinking-content"></div>
+            </details>
+          </div>`;
+          chatArea.appendChild(thinkingEl);
+        }
+        const contentEl = thinkingEl.querySelector('.thinking-content');
+        contentEl.textContent = thinkingText;
+        scrollToBottom();
+      }
       if (event.type === 'text_delta') {
         if (typingEl.parentNode) typingEl.remove();
         if (toolIndicator?.parentNode) toolIndicator.remove();
+        // 收到正文后，折叠思考过程
+        if (thinkingEl) {
+          const details = thinkingEl.querySelector('details');
+          if (details) {
+            details.removeAttribute('open');
+            details.querySelector('summary').innerHTML = `<span class="thinking-icon">💭</span> 思考完成 <span class="thinking-chars">${thinkingText.length}字</span>`;
+          }
+          thinkingEl = null;
+        }
         accumulatedText += event.text;
         if (!assistantBubble) {
           assistantBubble = appendMessage('assistant', '', now);

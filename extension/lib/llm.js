@@ -286,6 +286,11 @@ export class LLMEngine {
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) continue;
 
+          // Reasoning/thinking content (GLM-5, DeepSeek-R1 etc.)
+          if (delta.reasoning_content) {
+            emit('thinking_delta', { text: delta.reasoning_content });
+          }
+
           // Text content
           if (delta.content) {
             content += delta.content;
