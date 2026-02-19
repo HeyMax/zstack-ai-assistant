@@ -42,11 +42,12 @@ export class LLMEngine {
     anthropic: 'https://api.anthropic.com/v1',
     glm: 'https://open.bigmodel.cn/api/paas/v4',
     deepseek: 'https://api.deepseek.com/v1',
-    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    minimax: 'https://api.minimax.chat/v1'
   };
 
   // Providers that use OpenAI-compatible API format
-  static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen']);
+  static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen', 'minimax']);
 
   async chat(userMessage, onEvent) {
     this.messages.push({ role: 'user', content: userMessage });

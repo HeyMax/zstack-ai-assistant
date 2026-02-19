@@ -301,7 +301,8 @@ const PROVIDER_MODELS = {
   anthropic: ['claude-opus-4-6', 'claude-sonnet-4', 'claude-haiku-3.5'],
   glm: ['GLM-5', 'glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-4-long'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo']
+  qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
+  minimax: ['MiniMax-Text-01', 'abab6.5s-chat', 'abab6.5-chat', 'abab5.5s-chat']
 };
 
 const PROVIDER_DEFAULTS = {
@@ -309,7 +310,8 @@ const PROVIDER_DEFAULTS = {
   anthropic: 'claude-sonnet-4',
   glm: 'glm-4-flash',
   deepseek: 'deepseek-chat',
-  qwen: 'qwen-plus'
+  qwen: 'qwen-plus',
+  minimax: 'MiniMax-Text-01'
 };
 
 function updateModelPlaceholder() {
