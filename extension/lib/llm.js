@@ -1,25 +1,33 @@
-// LLM Engine with ZStack Full API Coverage
+// LLM Engine with ZStack Full API Coverage + Streaming Support
 export class LLMEngine {
   constructor() {
     this.apiKey = '';
     this.baseUrl = '';
     this.provider = 'openai';
-    this.model = 'gpt-4o-mini';
+    this.model = '';
     this.messages = [];
     this.zstackClient = null;
     this.queryMode = 'compact';
+    this._abortController = null;
   }
 
   configure({ apiKey, baseUrl, provider, model, zstackClient, queryMode }) {
-    if (apiKey) this.apiKey = apiKey;
+    if (apiKey !== undefined) this.apiKey = apiKey;
     if (baseUrl !== undefined) this.baseUrl = baseUrl;
     if (provider) this.provider = provider;
-    if (model) this.model = model;
+    if (model !== undefined) this.model = model;
     if (zstackClient) this.zstackClient = zstackClient;
     if (queryMode) this.queryMode = queryMode;
   }
 
   clearHistory() { this.messages = []; }
+
+  abort() {
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
+  }
 
   _systemPrompt() {
     const modeInstructions = this.queryMode === 'full'
@@ -28,7 +36,7 @@ export class LLMEngine {
     return SYSTEM_PROMPT_BASE + '\n' + modeInstructions;
   }
 
-  // Default base URLs per provider (include version path)
+  // Default base URLs per provider
   static BASE_URLS = {
     openai: 'https://api.openai.com/v1',
     anthropic: 'https://api.anthropic.com/v1',
@@ -44,69 +52,141 @@ export class LLMEngine {
     this.messages.push({ role: 'user', content: userMessage });
     const emit = (type, data) => { if (onEvent) onEvent({ type, ...data }); };
 
+    this._abortController = new AbortController();
+    const signal = this._abortController.signal;
+
     const maxRounds = 100;
     const startTime = Date.now();
-    const timeoutMs = 5 * 60 * 1000; // 5 minutes max
-    for (let i = 0; i < maxRounds; i++) {
-      if (Date.now() - startTime > timeoutMs) {
-        return '操作超时(5分钟)，部分操作可能已完成。请查看云平台确认状态。';
+    const timeoutMs = 5 * 60 * 1000;
+
+    try {
+      for (let i = 0; i < maxRounds; i++) {
+        if (signal.aborted) {
+          return '已停止生成。';
+        }
+        if (Date.now() - startTime > timeoutMs) {
+          return '操作超时(5分钟)，部分操作可能已完成。请查看云平台确认状态。';
+        }
+
+        const isAnthropic = this.provider === 'anthropic' && !LLMEngine.OPENAI_COMPAT.has(this.provider);
+        const response = isAnthropic
+          ? await this._callAnthropicStream(emit, signal)
+          : await this._callOpenAIStream(emit, signal);
+
+        if (signal.aborted) {
+          return '已停止生成。';
+        }
+
+        if (!response.toolCalls || response.toolCalls.length === 0) {
+          this.messages.push({ role: 'assistant', content: response.content });
+          return response.content;
+        }
+
+        // Show what tools are being called with details
+        const toolNames = isAnthropic
+          ? response.toolCalls.map(tc => tc.name)
+          : response.toolCalls.map(tc => tc.function.name);
+        const toolDetails = isAnthropic
+          ? response.toolCalls.map(tc => {
+              const args = tc.input || {};
+              return this._formatToolDetail(tc.name, args);
+            })
+          : response.toolCalls.map(tc => {
+              try {
+                const args = JSON.parse(tc.function.arguments);
+                return this._formatToolDetail(tc.function.name, args);
+              } catch { return tc.function.name; }
+            });
+        emit('tool_start', { tools: toolNames, toolDetails, round: i + 1 });
+
+        // Execute tool calls
+        if (isAnthropic) {
+          this.messages.push({ role: 'assistant', content: response.rawContent });
+          const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
+          const results = await Promise.all(
+            response.toolCalls.map(async tc => {
+              try {
+                const result = await this._executeTool(tc.name, tc.input);
+                return {
+                  type: 'tool_result',
+                  tool_use_id: tc.id,
+                  content: JSON.stringify(result).slice(0, truncateLimit)
+                };
+              } catch (e) {
+                return {
+                  type: 'tool_result',
+                  tool_use_id: tc.id,
+                  content: JSON.stringify({ error: e.message })
+                };
+              }
+            })
+          );
+          this.messages.push({ role: 'user', content: results });
+        } else {
+          this.messages.push(response.rawMessage);
+          const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
+          const results = await Promise.all(
+            response.toolCalls.map(async tc => {
+              try {
+                const args = JSON.parse(tc.function.arguments);
+                const result = await this._executeTool(tc.function.name, args);
+                return {
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  content: JSON.stringify(result).slice(0, truncateLimit)
+                };
+              } catch (e) {
+                return {
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  content: JSON.stringify({ error: e.message })
+                };
+              }
+            })
+          );
+          results.forEach(r => this.messages.push(r));
+        }
+        emit('tool_done', { tools: toolNames, round: i + 1 });
       }
-      emit('status', { text: `思考中... (${i + 1})` });
-
-      const response = LLMEngine.OPENAI_COMPAT.has(this.provider)
-        ? await this._callOpenAI()
-        : this.provider === 'anthropic'
-          ? await this._callAnthropic()
-          : await this._callOpenAI(); // fallback to OpenAI format
-
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        this.messages.push({ role: 'assistant', content: response.content });
-        emit('text', { text: response.content });
-        return response.content;
+      return '操作轮次已达上限，部分操作可能已完成。请查看云平台确认状态。';
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        return '已停止生成。';
       }
-
-      // Show what tools are being called
-      const toolNames = this.provider === 'anthropic'
-        ? response.toolCalls.map(tc => tc.name)
-        : response.toolCalls.map(tc => tc.function.name);
-      emit('tool_start', { tools: toolNames, round: i + 1 });
-
-      // If model also returned text alongside tool calls, emit it
-      if (response.content) emit('text', { text: response.content });
-
-      // Execute tool calls in parallel
-      if (this.provider === 'anthropic') {
-        this.messages.push({ role: 'assistant', content: response.rawContent });
-        const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
-        const results = await Promise.all(
-          response.toolCalls.map(async tc => ({
-            type: 'tool_result',
-            tool_use_id: tc.id,
-            content: JSON.stringify(await this._executeTool(tc.name, tc.input)).slice(0, truncateLimit)
-          }))
-        );
-        this.messages.push({ role: 'user', content: results });
-      } else {
-        this.messages.push(response.rawMessage);
-        const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
-        const results = await Promise.all(
-          response.toolCalls.map(async tc => ({
-            role: 'tool',
-            tool_call_id: tc.id,
-            content: JSON.stringify(await this._executeTool(tc.function.name, JSON.parse(tc.function.arguments))).slice(0, truncateLimit)
-          }))
-        );
-        results.forEach(r => this.messages.push(r));
-      }
-      emit('tool_done', { tools: toolNames, round: i + 1 });
+      throw e;
+    } finally {
+      this._abortController = null;
     }
-    return '操作轮次已达上限(50轮)，部分操作可能已完成。请查看云平台确认状态，或分步执行剩余操作。';
   }
 
-  async _callOpenAI() {
+  _formatToolDetail(name, args) {
+    switch (name) {
+      case 'zstack_query':
+        return `查询 ${args.resource_path || ''}${args.conditions?.length ? ' [' + args.conditions.join(', ') + ']' : ''}`;
+      case 'zstack_get':
+        return `获取 ${args.resource_path || ''} ${(args.uuid || '').slice(0, 8)}...`;
+      case 'zstack_create':
+        return `创建 ${args.resource_path || ''}`;
+      case 'zstack_delete':
+        return `删除 ${args.resource_path || ''} ${(args.uuid || '').slice(0, 8)}...`;
+      case 'zstack_action':
+        const actionName = args.body ? Object.keys(args.body)[0] : '';
+        return `执行 ${actionName} on ${args.resource_path || ''}`;
+      case 'zstack_update':
+        return `更新 ${args.resource_path || ''} ${(args.uuid || '').slice(0, 8)}...`;
+      case 'zstack_zql':
+        return `ZQL: ${(args.zql || '').slice(0, 60)}`;
+      default:
+        return name.replace(/_/g, ' ');
+    }
+  }
+
+  // ========== OpenAI-compatible Streaming ==========
+  async _callOpenAIStream(emit, signal) {
     const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
     const base = this.baseUrl || defaultBase;
     const url = `${base.replace(/\/$/, '')}/chat/completions`;
+
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
@@ -115,23 +195,104 @@ export class LLMEngine {
         messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 16384
-      })
+        max_tokens: 16384,
+        stream: true
+      }),
+      signal
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    const msg = data.choices[0].message;
+
+    if (!res.ok) {
+      const errText = await res.text();
+      let errMsg;
+      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
+      throw new Error(errMsg);
+    }
+
+    // Parse SSE stream
+    let content = '';
+    const toolCalls = []; // { index -> { id, function: { name, arguments } } }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data: ')) continue;
+
+          let chunk;
+          try {
+            chunk = JSON.parse(trimmed.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (chunk.error) {
+            throw new Error(chunk.error.message || JSON.stringify(chunk.error));
+          }
+
+          const delta = chunk.choices?.[0]?.delta;
+          if (!delta) continue;
+
+          // Text content
+          if (delta.content) {
+            content += delta.content;
+            emit('text_delta', { text: delta.content });
+          }
+
+          // Tool calls
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index;
+              if (!toolCalls[idx]) {
+                toolCalls[idx] = { id: tc.id || '', function: { name: '', arguments: '' } };
+              }
+              if (tc.id) toolCalls[idx].id = tc.id;
+              if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      // If we got partial content, return what we have
+      if (content && !toolCalls.length) {
+        return { content, toolCalls: null, rawMessage: { role: 'assistant', content } };
+      }
+      throw e;
+    }
+
+    const validToolCalls = toolCalls.filter(tc => tc && tc.id && tc.function.name);
+    const rawMessage = {
+      role: 'assistant',
+      content: content || null,
+      ...(validToolCalls.length > 0 ? { tool_calls: validToolCalls } : {})
+    };
+
     return {
-      content: msg.content || '',
-      toolCalls: msg.tool_calls || null,
-      rawMessage: msg
+      content: content || '',
+      toolCalls: validToolCalls.length > 0 ? validToolCalls : null,
+      rawMessage
     };
   }
 
-  async _callAnthropic() {
+  // ========== Anthropic Streaming ==========
+  async _callAnthropicStream(emit, signal) {
     const defaultBase = LLMEngine.BASE_URLS.anthropic;
     const base = this.baseUrl || defaultBase;
     const url = `${base.replace(/\/$/, '')}/messages`;
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -145,19 +306,124 @@ export class LLMEngine {
         system: this._systemPrompt(),
         messages: this.messages,
         tools: TOOLS_ANTHROPIC,
-        max_tokens: 16384
-      })
+        max_tokens: 16384,
+        stream: true
+      }),
+      signal
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
 
-    const textBlocks = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
-    const toolBlocks = data.content.filter(b => b.type === 'tool_use');
+    if (!res.ok) {
+      const errText = await res.text();
+      let errMsg;
+      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
+      throw new Error(errMsg);
+    }
+
+    // Parse Anthropic SSE stream
+    const contentBlocks = []; // Array of { type, text?, id?, name?, input? }
+    let currentBlockIndex = -1;
+    let currentBlockType = '';
+    let textContent = '';
+    let inputJsonStr = '';
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('event:')) continue;
+          if (!trimmed.startsWith('data: ')) continue;
+
+          let event;
+          try {
+            event = JSON.parse(trimmed.slice(6));
+          } catch {
+            continue;
+          }
+
+          switch (event.type) {
+            case 'message_start':
+              // Message metadata, nothing to do
+              break;
+
+            case 'content_block_start':
+              currentBlockIndex = event.index;
+              currentBlockType = event.content_block?.type || '';
+              if (currentBlockType === 'text') {
+                contentBlocks[currentBlockIndex] = { type: 'text', text: '' };
+              } else if (currentBlockType === 'tool_use') {
+                contentBlocks[currentBlockIndex] = {
+                  type: 'tool_use',
+                  id: event.content_block.id,
+                  name: event.content_block.name,
+                  input: {}
+                };
+                inputJsonStr = '';
+              }
+              break;
+
+            case 'content_block_delta':
+              if (event.delta?.type === 'text_delta' && event.delta.text) {
+                textContent += event.delta.text;
+                if (contentBlocks[event.index]) {
+                  contentBlocks[event.index].text += event.delta.text;
+                }
+                emit('text_delta', { text: event.delta.text });
+              } else if (event.delta?.type === 'input_json_delta' && event.delta.partial_json) {
+                inputJsonStr += event.delta.partial_json;
+              }
+              break;
+
+            case 'content_block_stop':
+              if (currentBlockType === 'tool_use' && contentBlocks[currentBlockIndex]) {
+                try {
+                  contentBlocks[currentBlockIndex].input = JSON.parse(inputJsonStr || '{}');
+                } catch {
+                  contentBlocks[currentBlockIndex].input = {};
+                }
+                inputJsonStr = '';
+              }
+              break;
+
+            case 'message_delta':
+              // stop_reason etc
+              break;
+
+            case 'message_stop':
+              break;
+
+            case 'error':
+              throw new Error(event.error?.message || 'Anthropic stream error');
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      if (textContent && !contentBlocks.some(b => b?.type === 'tool_use')) {
+        return { content: textContent, toolCalls: null, rawContent: [{ type: 'text', text: textContent }] };
+      }
+      throw e;
+    }
+
+    const toolBlocks = contentBlocks.filter(b => b?.type === 'tool_use');
+    const rawContent = contentBlocks.filter(b => b != null);
 
     return {
-      content: textBlocks,
-      toolCalls: toolBlocks.length > 0 ? toolBlocks.map(b => ({ id: b.id, name: b.name, input: b.input })) : null,
-      rawContent: data.content
+      content: textContent,
+      toolCalls: toolBlocks.length > 0
+        ? toolBlocks.map(b => ({ id: b.id, name: b.name, input: b.input }))
+        : null,
+      rawContent
     };
   }
 
@@ -166,11 +432,9 @@ export class LLMEngine {
     if (!cli || !cli.isLoggedIn()) return { error: '未连接到 ZStack，请先配置并登录' };
 
     try {
-      // Auto-prepend v1/ to resource_path if missing
       const fixPath = (p) => p && !p.startsWith('v1/') ? `v1/${p}` : p;
-      
+
       switch (name) {
-        // === Generic API ===
         case 'zstack_query':
           return await cli.query(fixPath(args.resource_path), args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
         case 'zstack_get':
@@ -185,8 +449,6 @@ export class LLMEngine {
           return await cli.update(fixPath(args.resource_path), args.uuid, args.body);
         case 'zstack_zql':
           return await cli.zql(args.zql);
-
-        // === VM shortcuts ===
         case 'query_vms': return await cli.queryVmInstances(args.conditions || []);
         case 'create_vm': return await cli.createVm(args.params);
         case 'start_vm': return await cli.startVm(args.uuid);
@@ -194,8 +456,6 @@ export class LLMEngine {
         case 'reboot_vm': return await cli.rebootVm(args.uuid);
         case 'delete_vm': return await cli.deleteVm(args.uuid);
         case 'migrate_vm': return await cli.migrateVm(args.uuid, args.hostUuid);
-
-        // === Quick queries ===
         case 'query_hosts': return await cli.queryHosts(args.conditions || []);
         case 'query_images': return await cli.queryImages(args.conditions || []);
         case 'query_l3_networks': return await cli.queryL3Networks(args.conditions || []);
@@ -206,7 +466,6 @@ export class LLMEngine {
         case 'query_eips': return await cli.queryEips(args.conditions || []);
         case 'query_security_groups': return await cli.querySecurityGroups(args.conditions || []);
         case 'query_vpc_routers': return await cli.queryVpcRouters(args.conditions || []);
-
         default:
           return { error: `未知工具: ${name}` };
       }
@@ -346,7 +605,6 @@ const QUERY_MODE_FULL = `
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
-  // --- Generic API Tools ---
   {
     type: 'function',
     function: {
@@ -458,7 +716,6 @@ const TOOLS = [
       }
     }
   },
-  // --- VM Shortcuts ---
   {
     type: 'function',
     function: {
@@ -527,7 +784,6 @@ const TOOLS = [
       parameters: { type: 'object', properties: { uuid: { type: 'string' }, hostUuid: { type: 'string' } }, required: ['uuid', 'hostUuid'] }
     }
   },
-  // --- Quick Queries ---
   {
     type: 'function',
     function: {

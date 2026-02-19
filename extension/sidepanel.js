@@ -4,25 +4,21 @@ import { LLMEngine } from './lib/llm.js';
 const zstack = new ZStackClient();
 const llm = new LLMEngine();
 
-// Markdown renderer setup
+// Markdown renderer
 const md = typeof marked !== 'undefined' ? marked : null;
-if (md) {
-  md.setOptions({ breaks: true, gfm: true });
-}
+if (md) md.setOptions({ breaks: true, gfm: true });
 
 function renderMarkdown(text) {
   if (!text) return '';
   if (md) {
     const raw = md.parse(text);
-    let html = typeof DOMPurify !== 'undefined'
+    return typeof DOMPurify !== 'undefined'
       ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td'] })
       : raw;
-    return html;
   }
   return escapeHtml(text);
 }
 
-// Add copy buttons to code blocks after DOM insertion
 function addCodeCopyButtons(container) {
   container.querySelectorAll('pre').forEach(pre => {
     if (pre.parentElement?.classList.contains('code-block-wrapper')) return;
@@ -54,23 +50,30 @@ const btnSaveLLM = document.getElementById('btn-save-llm');
 const settingsPanel = document.getElementById('settings-panel');
 const statusBar = document.getElementById('status-bar');
 const statusText = document.getElementById('status-text');
+const statusModel = document.getElementById('status-model');
+const btnScrollBottom = document.getElementById('btn-scroll-bottom');
+const btnStop = document.getElementById('btn-stop');
 
 let isProcessing = false;
 let queryMode = 'compact';
-let chatHistory = []; // { role, text, time }
-let lastFailedMsg = null; // for retry
+let chatHistory = [];
+let lastFailedMsg = null;
+let responseStartTime = 0;
 
 // --- Init ---
 async function init() {
-  await loadSettings();
-  setupEventListeners();
-  await loadChatHistory();
-  // Try auto-detect ZStack endpoint
-  chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
-    if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
-      document.getElementById('zstack-endpoint').value = res.endpoint;
-    }
-  });
+  try {
+    await loadSettings();
+    setupEventListeners();
+    await loadChatHistory();
+    chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
+      if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
+        document.getElementById('zstack-endpoint').value = res.endpoint;
+      }
+    });
+  } catch (e) {
+    console.error('Init error:', e);
+  }
 }
 
 async function loadSettings() {
@@ -80,20 +83,30 @@ async function loadSettings() {
     'initialized', 'queryMode'
   ]);
 
-  // First run: pre-fill with defaults from OpenClaw config
   if (!data.initialized) {
     await chrome.storage.local.set({
       initialized: true,
-      llmProvider: 'anthropic',
-      llmBaseUrl: 'https://cdr.digiman.live/claude-kiro-oauth',
-      llmApiKey: '123456',
-      llmModel: 'claude-opus-4-6',
+      llmProvider: 'openai',
+      llmBaseUrl: '',
+      llmApiKey: '',
+      llmModel: '',
       queryMode: 'compact'
     });
-    data.llmProvider = 'anthropic';
-    data.llmBaseUrl = 'https://cdr.digiman.live/claude-kiro-oauth';
-    data.llmApiKey = '123456';
-    data.llmModel = 'claude-opus-4-6';
+    data.llmProvider = 'openai';
+    data.llmBaseUrl = '';
+    data.llmApiKey = '';
+    data.llmModel = '';
+    // First time: show settings panel to guide user
+    settingsPanel.classList.remove('hidden');
+    // Switch to LLM tab
+    setTimeout(() => {
+      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
+      const llmTab = document.querySelector('.settings-tab[data-tab="llm"]');
+      if (llmTab) llmTab.classList.add('active');
+      const llmContent = document.getElementById('tab-llm');
+      if (llmContent) llmContent.classList.remove('hidden');
+    }, 100);
   }
 
   if (data.zstackEndpoint) document.getElementById('zstack-endpoint').value = data.zstackEndpoint;
@@ -104,51 +117,56 @@ async function loadSettings() {
   if (data.llmApiKey) document.getElementById('llm-apikey').value = data.llmApiKey;
   if (data.llmModel) document.getElementById('llm-model').value = data.llmModel;
 
-  // Load query mode
   queryMode = data.queryMode || 'compact';
   updateModeButton();
-
-  // Update LLM model placeholder based on provider
   updateModelPlaceholder();
 
-  // Auto-connect if we have credentials
   if (data.zstackEndpoint && data.zstackPassword) {
-    await connectZStack();
+    try { await connectZStack(); } catch (e) { console.error('Auto-connect failed:', e); }
   }
-  if (data.llmApiKey) {
-    configureLLM();
+  if (data.llmApiKey) configureLLM();
+
+  // Show setup guide if not configured
+  checkSetupGuide();
+}
+
+function checkSetupGuide() {
+  const apiKey = document.getElementById('llm-apikey').value.trim();
+  const endpoint = document.getElementById('zstack-endpoint').value.trim();
+  const guideEl = document.getElementById('setup-guide');
+  if (guideEl) {
+    if (!apiKey || !endpoint) {
+      guideEl.classList.remove('hidden');
+    } else {
+      guideEl.classList.add('hidden');
+    }
   }
 }
 
 function setupEventListeners() {
-  btnSettings.addEventListener('click', () => {
-    settingsPanel.classList.toggle('hidden');
-  });
-
-  btnClear.addEventListener('click', async () => {
-    llm.clearHistory();
-    chatHistory = [];
-    await chrome.storage.local.remove('chatHistory');
-    chatArea.innerHTML = `
-      <div class="welcome-msg">
-        <div class="welcome-icon">⚡</div>
-        <p>ZStack AI 运维助手</p>
-        <p class="welcome-sub">配置连接后，用自然语言管理你的云平台</p>
-        <div class="quick-actions">
-          <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
-          <button class="quick-btn" data-msg="帮我创建一台云主机">➕ 创建云主机</button>
-          <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
-          <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
-        </div>
-      </div>`;
-    bindQuickButtons();
-  });
-
+  btnSettings.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
+  btnClear.addEventListener('click', clearChat);
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
-
-  // Export conversation
   document.getElementById('btn-export').addEventListener('click', exportConversation);
+
+  // Stop button
+  if (btnStop) {
+    btnStop.addEventListener('click', () => {
+      llm.abort();
+      setStopButtonVisible(false);
+    });
+  }
+
+  // Settings tabs
+  document.querySelectorAll('.settings-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
+      tab.classList.add('active');
+      document.getElementById(`tab-${tab.dataset.tab}`).classList.remove('hidden');
+    });
+  });
 
   // Mode toggle
   const btnMode = document.getElementById('btn-mode');
@@ -164,7 +182,6 @@ function setupEventListeners() {
 
   document.getElementById('llm-provider').addEventListener('change', updateModelPlaceholder);
 
-  // Model select: show/hide custom input
   document.getElementById('llm-model-select').addEventListener('change', () => {
     const sel = document.getElementById('llm-model-select');
     const inp = document.getElementById('llm-model');
@@ -192,7 +209,70 @@ function setupEventListeners() {
   });
 
   btnSend.addEventListener('click', sendMessage);
+
+  // Scroll to bottom button
+  chatArea.addEventListener('scroll', () => {
+    const atBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 80;
+    btnScrollBottom.classList.toggle('hidden', atBottom);
+  });
+  btnScrollBottom.addEventListener('click', scrollToBottom);
+
   bindQuickButtons();
+}
+
+function clearChat() {
+  llm.clearHistory();
+  chatHistory = [];
+  chrome.storage.local.remove('chatHistory');
+  chatArea.innerHTML = buildWelcomeHTML();
+  bindQuickButtons();
+  checkSetupGuide();
+}
+
+function buildWelcomeHTML() {
+  const apiKey = document.getElementById('llm-apikey')?.value?.trim();
+  const endpoint = document.getElementById('zstack-endpoint')?.value?.trim();
+  const needsSetup = !apiKey || !endpoint;
+
+  let guideHTML = '';
+  if (needsSetup) {
+    guideHTML = `
+      <div id="setup-guide" class="setup-guide">
+        <div class="setup-guide-icon">🔧</div>
+        <div class="setup-guide-text">
+          <p>首次使用，请先完成配置：</p>
+          <ol>
+            ${!endpoint ? '<li>配置 ZStack API 连接地址</li>' : ''}
+            ${!apiKey ? '<li>配置 AI 模型 API Key</li>' : ''}
+          </ol>
+          <p>点击右上角 ⚙️ 打开设置</p>
+        </div>
+      </div>`;
+  } else {
+    guideHTML = '<div id="setup-guide" class="setup-guide hidden"></div>';
+  }
+
+  return `
+    <div class="welcome-msg">
+      <div class="welcome-icon">⚡</div>
+      <h2>ZStack AI 运维助手</h2>
+      <p class="welcome-sub">用自然语言管理你的云平台</p>
+      ${guideHTML}
+      <div class="welcome-features">
+        <div class="feature-item">📊 查询资源状态</div>
+        <div class="feature-item">🚀 创建和管理云主机</div>
+        <div class="feature-item">🔍 ZQL 智能查询</div>
+        <div class="feature-item">📋 全量数据导出</div>
+      </div>
+      <div class="quick-actions">
+        <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
+        <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
+        <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
+        <button class="quick-btn" data-msg="查看网络列表">🌐 网络列表</button>
+        <button class="quick-btn" data-msg="查看存储状态">💾 存储状态</button>
+        <button class="quick-btn" data-msg="查看负载均衡">⚖️ 负载均衡</button>
+      </div>
+    </div>`;
 }
 
 function updateModeButton() {
@@ -215,7 +295,7 @@ function bindQuickButtons() {
   });
 }
 
-// Provider preset models
+// Provider presets
 const PROVIDER_MODELS = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o3-mini'],
   anthropic: ['claude-opus-4-6', 'claude-sonnet-4', 'claude-haiku-3.5'],
@@ -226,7 +306,7 @@ const PROVIDER_MODELS = {
 
 const PROVIDER_DEFAULTS = {
   openai: 'gpt-4o-mini',
-  anthropic: 'claude-opus-4-6',
+  anthropic: 'claude-sonnet-4',
   glm: 'glm-4-flash',
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus'
@@ -237,9 +317,7 @@ function updateModelPlaceholder() {
   const modelSelect = document.getElementById('llm-model-select');
   const modelInput = document.getElementById('llm-model');
   const models = PROVIDER_MODELS[provider] || [];
-  const defaultModel = PROVIDER_DEFAULTS[provider] || '';
 
-  // Rebuild select options
   modelSelect.innerHTML = '';
   models.forEach(m => {
     const opt = document.createElement('option');
@@ -252,7 +330,6 @@ function updateModelPlaceholder() {
   customOpt.textContent = '自定义...';
   modelSelect.appendChild(customOpt);
 
-  // If current input value matches a preset, select it; otherwise show custom
   const currentVal = modelInput.value.trim();
   if (currentVal && models.includes(currentVal)) {
     modelSelect.value = currentVal;
@@ -266,7 +343,7 @@ function updateModelPlaceholder() {
     modelInput.style.display = modelSelect.value === '__custom__' ? '' : 'none';
   }
 
-  modelInput.placeholder = defaultModel || '输入模型名';
+  modelInput.placeholder = PROVIDER_DEFAULTS[provider] || '输入模型名';
 }
 
 // --- ZStack Connection ---
@@ -285,17 +362,11 @@ async function connectZStack() {
   try {
     zstack.configure(endpoint);
     await zstack.login(account, password);
-
-    // Save settings
-    await chrome.storage.local.set({
-      zstackEndpoint: endpoint,
-      zstackAccount: account,
-      zstackPassword: password
-    });
-
+    await chrome.storage.local.set({ zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
     setStatus('connected', `已连接 ${endpoint}`);
     configureLLM();
     settingsPanel.classList.add('hidden');
+    checkSetupGuide();
   } catch (e) {
     setStatus('disconnected', '连接失败');
     showError(`连接失败: ${e.message}`);
@@ -311,6 +382,8 @@ function configureLLM() {
   const model = (modelSelect === '__custom__' ? modelInput : modelSelect) || PROVIDER_DEFAULTS[provider];
 
   llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack, queryMode });
+
+  if (statusModel) statusModel.textContent = model ? `· ${model}` : '';
 }
 
 async function saveLLMSettings() {
@@ -321,15 +394,16 @@ async function saveLLMSettings() {
   const modelInput = document.getElementById('llm-model').value.trim();
   const model = modelSelect === '__custom__' ? modelInput : modelSelect;
 
-  await chrome.storage.local.set({
-    llmProvider: provider,
-    llmBaseUrl: baseUrl,
-    llmApiKey: apiKey,
-    llmModel: model
-  });
-
+  await chrome.storage.local.set({ llmProvider: provider, llmBaseUrl: baseUrl, llmApiKey: apiKey, llmModel: model });
   configureLLM();
   settingsPanel.classList.add('hidden');
+  checkSetupGuide();
+}
+
+function setStopButtonVisible(visible) {
+  if (btnStop) {
+    btnStop.classList.toggle('hidden', !visible);
+  }
 }
 
 // --- Chat ---
@@ -357,6 +431,8 @@ async function sendMessage() {
   input.style.height = 'auto';
   btnSend.disabled = true;
   isProcessing = true;
+  responseStartTime = Date.now();
+  setStopButtonVisible(true);
 
   const typingEl = appendTyping();
   let assistantBubble = null;
@@ -365,15 +441,32 @@ async function sendMessage() {
 
   try {
     const response = await llm.chat(text, (event) => {
-      if (event.type === 'text') {
+      if (event.type === 'text_delta') {
         if (typingEl.parentNode) typingEl.remove();
         if (toolIndicator?.parentNode) toolIndicator.remove();
-
         accumulatedText += event.text;
         if (!assistantBubble) {
           assistantBubble = appendMessage('assistant', '', now);
         }
-        assistantBubble.querySelector('.message-bubble').innerHTML = renderMarkdown(accumulatedText);
+        const bubble = assistantBubble.querySelector('.message-bubble');
+        bubble.innerHTML = renderMarkdown(accumulatedText);
+        // Add streaming cursor
+        const cursor = document.createElement('span');
+        cursor.className = 'streaming-cursor';
+        bubble.appendChild(cursor);
+        addCodeCopyButtons(assistantBubble);
+        scrollToBottom();
+      }
+      if (event.type === 'text') {
+        // Non-streaming fallback: full text at once
+        if (typingEl.parentNode) typingEl.remove();
+        if (toolIndicator?.parentNode) toolIndicator.remove();
+        accumulatedText = event.text;
+        if (!assistantBubble) {
+          assistantBubble = appendMessage('assistant', '', now);
+        }
+        const bubble = assistantBubble.querySelector('.message-bubble');
+        bubble.innerHTML = renderMarkdown(accumulatedText);
         addCodeCopyButtons(assistantBubble);
         scrollToBottom();
       }
@@ -382,8 +475,10 @@ async function sendMessage() {
         if (toolIndicator?.parentNode) toolIndicator.remove();
         toolIndicator = document.createElement('div');
         toolIndicator.className = 'message assistant';
-        const toolList = event.tools.map(t => t.replace(/_/g, ' ')).join(', ');
-        toolIndicator.innerHTML = `<div class="message-bubble tool-progress">⚙️ 执行中 (第${event.round}轮): ${escapeHtml(toolList)}</div>`;
+        const details = event.toolDetails || event.tools.map(t => t.replace(/_/g, ' '));
+        const elapsed = ((Date.now() - responseStartTime) / 1000).toFixed(0);
+        const detailsHtml = details.map(d => `<div class="tool-detail-item">→ ${escapeHtml(d)}</div>`).join('');
+        toolIndicator.innerHTML = `<div class="message-bubble tool-progress"><div class="tool-spinner"></div><div class="tool-details"><div class="tool-round">第${event.round}轮调用 (${elapsed}s)</div>${detailsHtml}</div></div>`;
         chatArea.appendChild(toolIndicator);
         scrollToBottom();
       }
@@ -393,11 +488,17 @@ async function sendMessage() {
     if (toolIndicator?.parentNode) toolIndicator.remove();
 
     const finalText = accumulatedText || response || '';
+    const elapsed = ((Date.now() - responseStartTime) / 1000).toFixed(1);
+
     if (!assistantBubble && finalText) {
-      assistantBubble = appendMessage('assistant', finalText, now);
-    } else if (assistantBubble && finalText) {
-      assistantBubble.querySelector('.message-bubble').innerHTML = renderMarkdown(finalText);
+      assistantBubble = appendMessage('assistant', finalText, `${now} · ${elapsed}s`);
+    } else if (assistantBubble) {
+      const bubble = assistantBubble.querySelector('.message-bubble');
+      // Remove streaming cursor and render final
+      bubble.innerHTML = renderMarkdown(finalText);
       addCodeCopyButtons(assistantBubble);
+      const timeEl = assistantBubble.querySelector('.msg-time');
+      if (timeEl) timeEl.textContent = `${now} · ${elapsed}s`;
     }
 
     chatHistory.push({ role: 'assistant', text: finalText, time: now });
@@ -405,9 +506,8 @@ async function sendMessage() {
   } catch (e) {
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
-    
-    // Auto-reconnect on session expiry
-    if (e.message.includes('session') || e.message.includes('401') || e.message.includes('login')) {
+
+    if (e.message?.includes('session') || e.message?.includes('401') || e.message?.includes('login')) {
       showError('会话已过期，正在重新连接...');
       try {
         await connectZStack();
@@ -417,11 +517,12 @@ async function sendMessage() {
       }
     } else {
       lastFailedMsg = text;
-      showErrorWithRetry(e.message);
+      showErrorWithRetry(e.message || '未知错误');
     }
   }
 
   isProcessing = false;
+  setStopButtonVisible(false);
   btnSend.disabled = !input.value.trim();
   scrollToBottom();
 }
@@ -430,6 +531,18 @@ async function sendMessage() {
 function appendMessage(role, text, time) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
+
+  const header = document.createElement('div');
+  header.className = 'msg-header';
+  const avatar = document.createElement('span');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = role === 'user' ? '👤' : '⚡';
+  header.appendChild(avatar);
+  const label = document.createElement('span');
+  label.textContent = role === 'user' ? '你' : 'AI 助手';
+  header.appendChild(label);
+  div.appendChild(header);
+
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
   if (role === 'assistant' && text) {
@@ -440,7 +553,6 @@ function appendMessage(role, text, time) {
   div.appendChild(bubble);
   if (role === 'assistant') addCodeCopyButtons(div);
 
-  // Actions row (copy + timestamp)
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
   if (role === 'assistant') {
@@ -472,7 +584,9 @@ function appendMessage(role, text, time) {
 function appendTyping() {
   const div = document.createElement('div');
   div.className = 'message assistant';
-  div.innerHTML = `<div class="message-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  div.innerHTML = `
+    <div class="msg-header"><span class="msg-avatar">⚡</span><span>AI 助手</span></div>
+    <div class="message-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
   chatArea.appendChild(div);
   scrollToBottom();
   return div;
@@ -484,13 +598,13 @@ function showError(msg) {
   div.textContent = msg;
   chatArea.appendChild(div);
   scrollToBottom();
-  setTimeout(() => div.remove(), 8000);
+  setTimeout(() => { if (div.parentNode) div.remove(); }, 8000);
 }
 
 function showErrorWithRetry(msg) {
   const div = document.createElement('div');
   div.className = 'error-msg error-with-retry';
-  div.innerHTML = `<span>${escapeHtml(msg)}</span><button class="retry-btn" title="重试">🔄 重试</button>`;
+  div.innerHTML = `<span>${escapeHtml(msg)}</span><button class="retry-btn">🔄 重试</button>`;
   div.querySelector('.retry-btn').addEventListener('click', () => {
     div.remove();
     if (lastFailedMsg) {
@@ -513,8 +627,8 @@ function exportConversation() {
     const time = m.time ? ` [${m.time}]` : '';
     return `### ${prefix}${time}\n\n${m.text}\n`;
   });
-  const md = `# ZStack AI 对话记录\n\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n${lines.join('\n---\n\n')}`;
-  const blob = new Blob([md], { type: 'text/markdown' });
+  const content = `# ZStack AI 对话记录\n\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n${lines.join('\n---\n\n')}`;
+  const blob = new Blob([content], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -540,29 +654,35 @@ function escapeHtml(text) {
 
 // --- Chat History Persistence ---
 async function saveChatHistory() {
-  // Keep last 50 messages to avoid storage bloat
-  const toSave = chatHistory.slice(-50);
-  await chrome.storage.local.set({ chatHistory: toSave });
+  try {
+    const toSave = chatHistory.slice(-50);
+    await chrome.storage.local.set({ chatHistory: toSave });
+  } catch (e) {
+    console.error('Save chat history error:', e);
+  }
 }
 
 async function loadChatHistory() {
-  const data = await chrome.storage.local.get('chatHistory');
-  if (!data.chatHistory || data.chatHistory.length === 0) return;
+  try {
+    const data = await chrome.storage.local.get('chatHistory');
+    if (!data.chatHistory || data.chatHistory.length === 0) return;
 
-  chatHistory = data.chatHistory;
-  const welcome = chatArea.querySelector('.welcome-msg');
-  if (welcome) welcome.remove();
+    chatHistory = data.chatHistory;
+    const welcome = chatArea.querySelector('.welcome-msg');
+    if (welcome) welcome.remove();
 
-  for (const msg of chatHistory) {
-    appendMessage(msg.role, msg.text, msg.time);
-    // Restore LLM context
-    if (msg.role === 'user') {
-      llm.messages.push({ role: 'user', content: msg.text });
-    } else if (msg.role === 'assistant') {
-      llm.messages.push({ role: 'assistant', content: msg.text });
+    for (const msg of chatHistory) {
+      appendMessage(msg.role, msg.text, msg.time);
+      if (msg.role === 'user') {
+        llm.messages.push({ role: 'user', content: msg.text });
+      } else if (msg.role === 'assistant') {
+        llm.messages.push({ role: 'assistant', content: msg.text });
+      }
     }
+    scrollToBottom();
+  } catch (e) {
+    console.error('Load chat history error:', e);
   }
-  scrollToBottom();
 }
 
 // --- Start ---
