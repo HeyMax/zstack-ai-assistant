@@ -1,77 +1,71 @@
-# ZStack AI Assistant
+# ZStack AI 智能运维助手
 
-基于大语言模型的 ZStack 云平台智能运维助手，以 Chrome 浏览器扩展形式运行，支持通过自然语言管理云平台资源。
+基于大语言模型的 ZStack 云平台智能运维助手，以 Chrome 浏览器扩展形式运行，通过自然语言对话实现云平台全生命周期管理。无需后端部署，即装即用。
 
-## 功能概览
+## 功能亮点
 
-- **自然语言交互** — 用中文直接下达运维指令，如"查看所有云主机"、"帮我创建一台 CentOS 云主机"
-- **完整 ZStack API 覆盖** — 支持云主机、物理机、镜像、网络、存储、负载均衡、VPC、安全组、IAM 等全部资源类型的增删改查
-- **ZQL 支持** — 内置 ZStack Query Language 支持，可执行复杂的跨资源关联查询
-- **多模型适配** — 同时支持 OpenAI 和 Anthropic (Claude) 两种 LLM 提供商
-- **Tool Calling** — 基于 LLM Function Calling 能力，自动将自然语言意图转化为 API 调用，支持多轮对话与并行工具执行
-- **自动检测** — 访问 ZStack UI 页面时自动识别并填充 API 地址
+- **自然语言运维** — 用中文直接管理云平台，如"查看所有运行中的云主机"、"创建一台 4C8G 的 CentOS 云主机"
+- **50+ 资源类型** — 覆盖计算、存储、网络、负载均衡、VPC、安全组、裸金属、弹性伸缩、监控告警等
+- **ZQL 智能查询** — 自动使用 ZStack Query Language，精确统计、条件过滤、关联查询
+- **双查询模式** — 精简模式（日常巡检）/ 全量模式（资源盘点）
+- **流式响应** — 实时逐字输出，支持停止生成，思考过程可视化
+- **6 家模型厂商** — Claude、GLM、GPT、DeepSeek、通义千问、MiniMax，支持自定义代理
+- **纯客户端** — 所有数据在浏览器本地处理，密码 SHA-512 哈希，不经过第三方
+
+## 快速开始
+
+1. 下载本仓库 `extension/` 目录
+2. Chrome 打开 `chrome://extensions/`，开启"开发者模式"
+3. 点击"加载已解压的扩展程序"，选择 `extension/` 目录
+4. 点击扩展图标，在侧边栏完成配置
 
 ## 项目结构
 
 ```
 ├── README.md
+├── RELEASE.md               # Release Notes
+├── docs/                    # 文档
 └── extension/               # Chrome 扩展源码
-    ├── manifest.json        # Chrome Extension Manifest V3 配置
-    ├── background.js        # Service Worker，处理扩展图标点击与页面检测消息
-    ├── content.js           # Content Script，自动检测当前页面是否为 ZStack UI
-    ├── sidepanel.html       # 侧边栏面板 HTML
-    ├── sidepanel.css        # 侧边栏样式
-    ├── sidepanel.js         # 侧边栏主逻辑（聊天交互、设置管理、消息流处理）
-    ├── lib/
-    │   ├── zstack.js        # ZStack API 客户端（登录、通用 CRUD、快捷方法）
-    │   └── llm.js           # LLM 引擎（OpenAI/Anthropic 双协议、Tool Calling 循环、系统提示词）
-    ├── icons/               # 扩展图标（16/48/128px）
-    └── test/
-        └── integration.mjs  # 集成测试（API 连通性、资源查询、LLM Tool Calling 端到端验证）
+    ├── manifest.json        # Manifest V3 配置
+    ├── background.js        # Service Worker
+    ├── sidepanel.html       # 侧边栏页面
+    ├── sidepanel.js         # 侧边栏逻辑（720行）
+    ├── sidepanel.css        # 样式（860行）
+    └── lib/
+        ├── llm.js           # LLM 引擎 + Tool Calling（960行）
+        ├── zstack.js         # ZStack API 客户端（254行）
+        ├── marked.min.js    # Markdown 渲染
+        └── purify.min.js    # XSS 防护
 ```
 
-## 安装与使用
+## 技术架构
 
-### 1. 加载扩展
-
-1. 打开 Chrome，访问 `chrome://extensions/`
-2. 开启右上角「开发者模式」
-3. 点击「加载已解压的扩展程序」，选择项目中的 `extension` 目录
-
-### 2. 配置连接
-
-点击扩展图标打开侧边栏，点击 ⚙️ 进入设置：
-
-- **ZStack 连接** — 填写 API 地址（如 `http://172.24.245.30:8080`）、账号和密码
-- **AI 模型** — 选择提供商（OpenAI / Anthropic），填写 API Key 和模型名称；可选填自定义 Base URL
-
-### 3. 开始使用
-
-连接成功后，在输入框中用自然语言描述你的运维需求即可。支持的操作示例：
-
-- `查看所有云主机`
-- `帮我创建一台云主机`
-- `查看物理主机状态`
-- `停止名为 test-vm 的云主机`
-- `查询所有 Running 状态的 VM 并按创建时间排序`
-
-## 运行测试
-
-集成测试需要可访问的 ZStack 环境和 LLM API：
-
-```bash
-node extension/test/integration.mjs
+```
+用户 ──→ Chrome Side Panel ──→ LLM Engine ──→ OpenAI/Anthropic API
+                                    │
+                                    ▼
+                              ZStack Client ──→ ZStack REST API + ZQL
 ```
 
-测试覆盖：登录认证、全资源类型查询、条件过滤、ZQL、UUID 查询、LLM 连通性、Tool Calling 流程、端到端多轮对话。
+- 前端：原生 JS + CSS，零框架依赖
+- LLM：OpenAI Chat Completions 兼容格式 + Anthropic Messages API
+- 渲染：marked.js + DOMPurify
 
-## 技术栈
+## 支持的模型
 
-- Chrome Extension Manifest V3
-- Vanilla JavaScript (ES Modules)
-- ZStack REST API + ZQL
-- OpenAI / Anthropic Chat Completions API (Function Calling)
+| 厂商 | 模型 | Tool Calling |
+|------|------|:---:|
+| Anthropic | Claude Opus 4 / Sonnet 4 | ✅ |
+| 智谱 AI | GLM-5 / GLM-4 系列 | ✅ |
+| OpenAI | GPT-4o / GPT-4o-mini | ✅ |
+| DeepSeek | DeepSeek-Chat | ✅ |
+| 阿里通义 | Qwen-Plus / Qwen-Max | ✅ |
+| MiniMax | MiniMax-M2.5 | ✅ |
 
-## 许可证
+## 详细信息
 
-MIT
+请参阅 [RELEASE.md](RELEASE.md) 了解完整的功能说明和版本信息。
+
+## License
+
+Internal Use Only — ZStack
