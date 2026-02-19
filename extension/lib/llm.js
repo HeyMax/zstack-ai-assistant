@@ -256,7 +256,7 @@ export class LLMEngine {
             for (const tc of delta.tool_calls) {
               const idx = tc.index;
               if (!toolCalls[idx]) {
-                toolCalls[idx] = { id: tc.id || '', function: { name: '', arguments: '' } };
+                toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
               }
               if (tc.id) toolCalls[idx].id = tc.id;
               if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
