@@ -194,9 +194,7 @@ export class LLMEngine {
       stream
     };
 
-    // max_tokens: use conservative default, some models have low limits
-    // DeepSeek uses max_tokens, Qwen compatible mode uses max_tokens too
-    body.max_tokens = 8192;
+    // 不传 max_tokens，让各 provider 用模型默认上限，避免限制大模型能力
 
     if (supportsTools) {
       body.tools = TOOLS;
@@ -387,7 +385,7 @@ export class LLMEngine {
         system: this._systemPrompt(),
         messages: this.messages,
         tools: TOOLS_ANTHROPIC,
-        max_tokens: 8192,
+        max_tokens: 16384,  // Anthropic 必填参数，给足够大的值
         stream: true
       }),
       signal
