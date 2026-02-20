@@ -63,7 +63,12 @@ export class ZStackClient {
   }
 
   async get(resourcePath, uuid) {
-    return this._get(`/${resourcePath}/${uuid}`);
+    const data = await this._get(`/${resourcePath}/${uuid}`);
+    // 兼容不同 ZStack 版本：有的返回 inventory（单对象），有的返回 inventories[]（数组）
+    if (!data.inventory && data.inventories?.length > 0) {
+      data.inventory = data.inventories[0];
+    }
+    return data;
   }
 
   async create(resourcePath, body) {
@@ -230,7 +235,9 @@ export class ZStackClient {
     let data;
     try { data = JSON.parse(text); } catch { data = text; }
     if (!res.ok) {
-      const msg = data?.error?.details || data?.error?.description || `HTTP ${res.status}`;
+      const msg = data?.error?.details || data?.error?.description
+        || (typeof data === 'string' && data.length < 200 ? data : null)
+        || `HTTP ${res.status}`;
       throw new Error(msg);
     }
     return data;
