@@ -372,12 +372,14 @@ function updateModelPlaceholder() {
 
 // --- ZStack Connection ---
 async function connectZStack() {
+  const platform = document.getElementById('platform-type').value;
+  const envName = document.getElementById('env-name').value || `环境 ${environments.length + 1}`;
   const endpoint = document.getElementById('zstack-endpoint').value.trim();
   const account = document.getElementById('zstack-account').value.trim();
   const password = document.getElementById('zstack-password').value;
 
   if (!endpoint || !account || !password) {
-    showError('请填写完整的 ZStack 连接信息');
+    showError('请填写完整的连接信息');
     return;
   }
 
@@ -386,7 +388,24 @@ async function connectZStack() {
   try {
     zstack.configure(endpoint);
     await zstack.login(account, password);
+    
+    // 保存到全局配置
     await chrome.storage.local.set({ zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
+    
+    // 保存到环境列表（如果不存在）
+    const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
+    const env = { platform, name: envName, endpoint, account, password };
+    if (existingIdx >= 0) {
+      environments[existingIdx] = env;
+      currentEnvId = existingIdx;
+    } else {
+      environments.push(env);
+      currentEnvId = environments.length - 1;
+    }
+    await chrome.storage.local.set({ environments, currentEnvId });
+    renderEnvSelector();
+    document.getElementById('env-select').value = currentEnvId;
+    
     setStatus('connected', `已连接 ${endpoint}`);
     configureLLM();
     settingsPanel.classList.add('hidden');
@@ -643,6 +662,15 @@ function appendTyping() {
   chatArea.appendChild(div);
   scrollToBottom();
   return div;
+}
+
+function showMessage(msg) {
+  const div = document.createElement('div');
+  div.className = 'success-msg';
+  div.textContent = msg;
+  chatArea.appendChild(div);
+  scrollToBottom();
+  setTimeout(() => { if (div.parentNode) div.remove(); }, 5000);
 }
 
 function showError(msg) {
