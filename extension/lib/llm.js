@@ -574,10 +574,11 @@ const SYSTEM_PROMPT_BASE = `你是 ZStack 云平台智能运维助手，拥有�
 - DELETE: 删除资源
 
 ### 认证方式
-- 登录获取 Session：PUT /v1/accounts/login
-- Body: {"logInByAccount": {"accountName": "admin", "password": "SHA512哈希后的密码"}}
-- 返回: {"inventory": {"uuid": "session-uuid"}}
+- 登录获取 Session：PUT /v1/accounts/login 或 PUT /v1/accounts/users/login
+- Body: {"logInByAccount": {"accountName": "admin", "password": "SHA512哈希后的密码"}} 或 {"logInByUser": {"userName": "xxx", "password": "xxx", "accountName": "admin"}}
+- 返回: {"inventory": {"uuid": "session-uuid", "accountUuid": "xxx", "userUuid": "xxx", "expiredDate": "xxx"}}
 - 后续调用 Header: Authorization: OAuth session-uuid
+- 登出：DELETE /v1/accounts/sessions/{session-uuid}
 
 ### 参数传递方式
 1. URL 传参：/v1/vm-instances/{uuid}/actions
@@ -606,9 +607,275 @@ const SYSTEM_PROMPT_BASE = `你是 ZStack 云平台智能运维助手，拥有�
 - 404: 资源不存在
 - 503: 操作失败
 
-### 版本查询
-- PUT /v1/management-nodes/actions，body: {"getVersion": {}}
-- 返回: {"success": true, "version": "4.8.30"}
+---
+
+## ZStack 资源 API 详细规范
+
+### 1. 登录认证 (Account)
+
+| 操作 | API 路径 | 方法 | Body 格式 |
+|------|----------|------|-----------|
+| 账户登录 | /v1/accounts/login | PUT | {"logInByAccount": {"accountName": "xxx", "password": "SHA512密码"}} |
+| 用户登录 | /v1/accounts/users/login | PUT | {"logInByUser": {"accountName": "xxx", "userName": "xxx", "password": "xxx"}} |
+| 登出 | /v1/accounts/sessions/{uuid} | DELETE | - |
+| 创建账户 | /v1/accounts | POST | {"params": {"name": "xxx", "password": "xxx"}} |
+| 查询账户 | /v1/accounts | GET | ?q=name=xxx |
+
+### 2. 计算资源 (Compute)
+
+#### 2.1 云主机 (vm-instances)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建云主机 | /v1/vm-instances | POST | {"params": {"name": "xxx", "instanceOfferingUuid": "xxx", "imageUuid": "xxx", "l3NetworkUuids": ["xxx"], "type": "UserVm"}} |
+| 查询云主机 | /v1/vm-instances | GET | ?q=name=xxx&state=Running |
+| 获取云主机 | /v1/vm-instances/{uuid} | GET | - |
+| 启动 | /v1/vm-instances/{uuid}/actions | PUT | {"startVmInstance": {}} |
+| 停止 | /v1/vm-instances/{uuid}/actions | PUT | {"stopVmInstance": {"type": "grace"}} |
+| 重启 | /v1/vm-instances/{uuid}/actions | PUT | {"rebootVmInstance": {}} |
+| 删除 | /v1/vm-instances/{uuid} | DELETE | - |
+| 迁移 | /v1/vm-instances/{uuid}/actions | PUT | {"migrateVm": {"hostUuid": "xxx"}} |
+| 挂载ISO | /v1/vm-instances/{uuid}/iso | PUT | {"attachIso": {"isoUuid": "xxx"}} |
+| 挂载云盘 | /v1/volumes/{uuid}/actions | PUT | {"attachDataVolume": {"vmInstanceUuid": "xxx"}} |
+
+返回字段：uuid, name, state, cpuNum, memorySize, vmNics.ip, hostUuid, imageUuid, instanceOfferingUuid
+
+#### 2.2 镜像 (images)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 添加镜像 | /v1/images | POST | {"params": {"name": "xxx", "url": "http://xxx", "mediaType": "RootVolumeTemplate", "backupStorageUuid": "xxx"}} |
+| 查询镜像 | /v1/images | GET | ?q=name~=xxx |
+| 删除镜像 | /v1/images/{uuid} | DELETE | - |
+
+返回字段：uuid, name, state, mediaType, size, backupStorageUuid
+
+#### 2.3 计算规格 (instance-offerings)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询规格 | /v1/instance-offerings | GET |
+
+返回字段：uuid, name, cpuNum, memorySize, type
+
+#### 2.4 云盘规格 (disk-offerings)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询规格 | /v1/disk-offerings | GET |
+
+返回字段：uuid, name, diskSize, volumeType
+
+### 3. 存储资源 (Storage)
+
+#### 3.1 云盘 (volumes)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建数据盘 | /v1/volumes/data | POST | {"params": {"name": "xxx", "diskOfferingUuid": "xxx", "primaryStorageUuid": "xxx"}} |
+| 查询云盘 | /v1/volumes | GET | ?q=type=Data |
+| 挂载 | /v1/volumes/{uuid}/actions | PUT | {"attachDataVolume": {"vmInstanceUuid": "xxx"}} |
+| 卸载 | /v1/volumes/{uuid}/actions | PUT | {"detachDataVolume": {}} |
+| 扩容 | /v1/volumes/{uuid}/actions | PUT | {"resizeDataVolume": {"size": "xxx"}} |
+| 删除 | /v1/volumes/{uuid} | DELETE | - |
+
+返回字段：uuid, name, type, size, vmInstanceUuid, primaryStorageUuid, diskOfferingUuid
+
+#### 3.2 快照 (volume-snapshots)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建快照 | /v1/volume-snapshots | POST | {"params": {"volumeUuid": "xxx", "name": "xxx"}} |
+| 查询快照 | /v1/volume-snapshots | GET | ?q=volumeUuid=xxx |
+| 从快照创建云盘 | /v1/volumes/data | POST | {"params": {"name": "xxx", "snapshotUuid": "xxx"}} |
+| 删除 | /v1/volume-snapshots/{uuid} | DELETE | - |
+
+#### 3.3 主存储 (primary-storage)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 查询主存储 | /v1/primary-storage | GET | ?q=name=xxx |
+| 获取主存储 | /v1/primary-storage/{uuid} | GET | - |
+
+返回字段： uuid, name, state, type, totalCapacity, availableCapacity
+
+#### 3.4 备份存储 (backup-storage)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询备份存储 | /v1/backup-storage | GET |
+
+返回字段：uuid, name, state, type, totalCapacity, availableCapacity
+
+### 4. 网络资源 (Network)
+
+#### 4.1 L2 网络
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询 L2 网络 | /v1/l2-networks | GET |
+
+#### 4.2 L3 网络 (l3-networks)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 查询 L3 网络 | /v1/l3-networks | GET | ?q=name=xxx |
+| 获取 L3 网络 | /v1/l3-networks/{uuid} | GET | - |
+
+返回字段：uuid, name, l2NetworkUuid, networkServices, ipRanges
+
+#### 4.3 IP 地址 (ip-address)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询 IP | /v1/ip-addresses | GET | ?q=l3NetworkUuid=xxx |
+
+返回字段：uuid, ip, state, vmNicUuid, l3NetworkUuid
+
+#### 4.4 VIP (vips)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建 VIP | /v1/vips | POST | {"params": {"name": "xxx", "l3NetworkUuid": "xxx", "requiredIp": "xxx"}} |
+| 查询 VIP | /v1/vips | GET | ?q=name=xxx |
+| 删除 | /v1/vips/{uuid} | DELETE | - |
+
+返回字段：uuid, name, ip, l3NetworkUuid, state, gateway, netmask
+
+#### 4.5 弹性 IP (eips)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建 EIP | /v1/eips | POST | {"params": {"name": "xxx", "vipUuid": "xxx", "vmNicUuid": "xxx"}} |
+| 查询 EIP | /v1/eips | GET | ?q=name=xxx |
+| 绑定 | /v1/eips/{uuid}/actions | PUT | {"attachEip": {"vmNicUuid": "xxx"}} |
+| 解绑 | /v1/eips/{uuid}/actions | PUT | {"detachEip": {}} |
+| 删除 | /v1/eips/{uuid} | DELETE | - |
+
+返回字段：uuid, name, ip, vipUuid, vmNicUuid, state
+
+#### 4.6 安全组 (security-groups)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建安全组 | /v1/security-groups | POST | {"params": {"name": "xxx"}} |
+| 查询安全组 | /v1/security-groups | GET | ?q=name=xxx |
+| 添加规则 | /v1/security-groups/{uuid}/rules | POST | {"params": {"rules": [{"type": "Ingress", "protocol": "TCP", "startPort": 1, "endPort": 65535}]}} |
+| 添加 VM 到安全组 | /v1/security-groups/{uuid}/vm-nics | POST | {"params": {"vmNicUuids": ["xxx"]}} |
+| 删除 | /v1/security-groups/{uuid} | DELETE | - |
+
+返回字段：uuid, name, rules, attachedVmUuids
+
+#### 4.7 端口转发 (port-forwarding)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建规则 | /v1/port-forwarding | POST | {"params": {"name": "xxx", "vipUuid": "xxx", "vmNicUuid": "xxx", "protocol": "TCP", "privatePort": 22, "publicPort": 22}} |
+| 查询规则 | /v1/port-forwarding | GET | - |
+
+### 5. 负载均衡 (Load Balancer)
+
+#### 5.1 负载均衡器
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建 LB | /v1/load-balancers | POST | {"params": {"name": "xxx", "vipUuid": "xxx"}} |
+| 查询 LB | /v1/load-balancers | GET | ?q=name=xxx |
+| 添加后端 | /v1/load-balancers/{uuid}/backend-servers | POST | {"params": {"vmNicUuids": ["xxx"]}} |
+| 刷新 LB | /v1/load-balancers/{uuid}/actions | PUT | {"refreshLoadBalancer": {}} |
+| 删除 | /v1/load-balancers/{uuid} | DELETE | - |
+
+返回字段：uuid, name, vipUuid, state, listeners
+
+#### 5.2 监听器
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建监听器 | /v1/load-balancers/{uuid}/listeners | POST | {"params": {"name": "xxx", "loadBalancerPort": 80, "instancePort": 80, "protocol": "http"}} |
+| 查询监听器 | /v1/load-balancers/{uuid}/listeners | GET | - |
+
+### 6. VPC 路由器 (Enterprise)
+
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建 VPC 路由器 | /v1/vpc/virtual-routers | POST | {"params": {"name": "xxx", "l3NetworkUuids": ["xxx"]}} |
+| 查询 VPC 路由器 | /v1/vpc/virtual-routers | GET | ?q=name=xxx |
+| 获取 VPC 路由器 | /v1/vpc/virtual-routers/{uuid} | GET | - |
+| 添加 DNS | /v1/vpc/virtual-routers/{uuid}/dns | POST | {"params": {"dns": "8.8.8.8"}} |
+| 删除 DNS | /v1/vpc/virtual-routers/{uuid}/dns | DELETE | - |
+
+返回字段：uuid, name, state, l3NetworkUuids, vrUuid
+
+### 7. 身份认证 (IAM2)
+
+#### 7.1 IAM2 项目
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建项目 | /v1/iam2/projects | POST | {"params": {"name": "xxx", "description": "xxx", "quota": {}}} |
+| 查询项目 | /v1/iam2/projects | GET | ?q=name=xxx |
+| 更新项目 | /v1/iam2/projects/{uuid} | PUT | {"params": {"name": "xxx"}} |
+| 删除 | /v1/iam2/projects/{uuid} | DELETE | - |
+
+返回字段：uuid, name, state, description
+
+#### 7.2 虚拟身份 (iam2/virtual-ids)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建虚拟身份 | /v1/iam2/virtual-ids | POST | {"params": {"name": "xxx", "password": "xxx"}} |
+| 查询虚拟身份 | /v1/iam2/virtual-ids | GET | ?q=name=xxx |
+| 添加到项目 | /v1/iam2/projects/{uuid}/virtual-ids | POST | {"params": {"virtualIds": ["xxx"]}} |
+
+#### 7.3 组织 (iam2/organizations)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询组织 | /v1/iam2/organizations | GET |
+
+### 8. 监控告警 (Monitoring)
+
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 查询告警 | /v1/zwatch/alarms | GET | ?q=origin=xxx |
+| 创建触发器 | /v1/zwatch/triggers | POST | {"params": {"name": "xxx", "expression": "xxx"}} |
+| 查询触发器 | /v1/zwatch/triggers | GET | - |
+| 创建告警动作 | /v1/zwatch/trigger-actions | POST | {"params": {"triggerUuid": "xxx", "actionType": "email"}} |
+
+### 9. 运维管理
+
+#### 9.1 物理机 (hosts)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 查询物理机 | /v1/hosts | GET | ?q=clusterUuid=xxx |
+| 获取物理机 | /v1/hosts/{uuid} | GET | - |
+| 连接 | /v1/hosts/{uuid}/actions | PUT | {"connect": {}} |
+| 维护模式 | /v1/hosts/{uuid}/actions | PUT | {"enterMaintenanceMode": {}} |
+
+返回字段：uuid, name, state, status, managementIp, clusterUuid, hypervisorType
+
+#### 9.2 集群 (clusters)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询集群 | /v1/clusters | GET |
+| 获取集群 | /v1/clusters/{uuid} | GET |
+
+返回字段：uuid, name, state, type, zoneUuid
+
+#### 9.3 区域 (zones)
+| 操作 | API 路径 | 方法 |
+|------|----------|------|
+| 查询区域 | /v1/zones | GET |
+| 获取区域 | /v1/zones/{uuid} | GET |
+
+#### 9.4 定时任务 (scheduler)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建任务 | /v1/scheduler/jobs | POST | {"params": {"name": "xxx", "targetUuid": "xxx", "triggerUuid": "xxx"}} |
+| 查询任务 | /v1/scheduler/jobs | GET | - |
+
+#### 9.5 全局配置
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 查询配置 | /v1/global-configurations | GET | ?q=category=xxx |
+| 更新配置 | /v1/global-configurations/{category}/{name} | PUT | {"params": {"value": "xxx"}} |
+
+#### 9.6 标签 (tags)
+| 操作 | API 路径 | 方法 | Body/参数 |
+|------|----------|------|-----------|
+| 创建标签 | /v1/tags | POST | {"params": {"resourceType": "VmInstanceVO", "resourceUuid": "xxx", "tag": "xxx"}} |
+| 查询标签 | /v1/tags | GET | ?q=resourceUuid=xxx |
+
+### 10. 基础设施查询
+
+| 资源 | API 路径 | 关键返回字段 |
+|------|----------|-------------|
+| 区域 | /v1/zones | uuid, name, state |
+| 集群 | /v1/clusters | uuid, name, type, zoneUuid |
+| 物理机 | /v1/hosts | uuid, name, status, managementIp, clusterUuid |
+| 主存储 | /v1/primary-storage | uuid, name, type, totalCapacity, availableCapacity |
+| 备份存储 | /v1/backup-storage | uuid, name, type |
+| 管理节点 | /v1/management-nodes | uuid, version, status |
 
 ---
 
@@ -684,11 +951,6 @@ certificates, ldap/servers, licenses
 
 ## 创建资源的 body 格式
 创建资源时 body 通常为 { "params": { ...fields } }，具体字段参考 ZStack API 文档。
-
-### 版本查询
-- **API**: PUT /zstack/v1/management-nodes/actions
-- **Body**: {"getVersion": {}}
-- **返回**: {"success": true, "version": "4.8.30"}
 
 ### 创建云主机
 创建资源时 body 通常为 { "params": { ...fields } }，具体字段参考 ZStack API 文档。
