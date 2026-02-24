@@ -21,6 +21,15 @@
     </div>
   </div>
 
+  <!-- Environment selector -->
+  <div class="env-bar">
+    <select id="env-select" class="env-select">
+      <option value="">+ 添加环境</option>
+    </select>
+    <button id="btn-add-env" class="icon-btn" title="添加新环境">➕</button>
+    <button id="btn-save-env" class="icon-btn" title="保存当前环境">💾</button>
+  </div>
+
   <!-- Status bar -->
   <div id="status-bar" class="status-bar disconnected">
     <span class="status-dot"></span>
@@ -43,6 +52,18 @@
     </div>
     
     <div class="settings-content" id="tab-zstack">
+      <div class="field">
+        <label>平台类型</label>
+        <select id="platform-type">
+          <option value="zstack">ZStack</option>
+          <option value="vSphere" disabled>vSphere (即将支持)</option>
+          <option value="zaku" disabled>Zaku (即将支持)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>环境名称</label>
+        <input type="text" id="env-name" placeholder="如：生产环境、测试环境">
+      </div>
       <div class="field">
         <label>API 地址</label>
         <input type="text" id="zstack-endpoint" placeholder="http://172.24.245.30:8080">

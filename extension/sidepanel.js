@@ -59,12 +59,15 @@ let queryMode = 'compact';
 let chatHistory = [];
 let lastFailedMsg = null;
 let responseStartTime = 0;
+let environments = [];  // 环境列表
+let currentEnvId = null;  // 当前选中环境 ID
 
 // --- Init ---
 async function init() {
   try {
     await loadSettings();
     setupEventListeners();
+    setupEnvEventListeners();
     await loadChatHistory();
     chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
       if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
@@ -80,8 +83,16 @@ async function loadSettings() {
   const data = await chrome.storage.local.get([
     'zstackEndpoint', 'zstackAccount', 'zstackPassword',
     'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
-    'initialized', 'queryMode'
+    'initialized', 'queryMode',
+    'environments', 'currentEnvId'
   ]);
+
+  // 加载环境列表
+  environments = data.environments || [];
+  currentEnvId = data.currentEnvId || null;
+
+  // 渲染环境选择器
+  renderEnvSelector();
 
   if (!data.initialized) {
     await chrome.storage.local.set({
@@ -718,3 +729,96 @@ async function loadChatHistory() {
 
 // --- Start ---
 init();
+
+// ========== Environment Management ==========
+
+function renderEnvSelector() {
+  const select = document.getElementById('env-select');
+  select.innerHTML = '<option value="">+ 添加环境</option>';
+  
+  environments.forEach((env, index) => {
+    const option = document.createElement('option');
+    option.value = index;
+    option.textContent = `${env.name} (${env.platform} - ${env.endpoint})`;
+    if (index === currentEnvId) option.selected = true;
+    select.appendChild(option);
+  });
+}
+
+function setupEnvEventListeners() {
+  const envSelect = document.getElementById('env-select');
+  const btnAddEnv = document.getElementById('btn-add-env');
+  const btnSaveEnv = document.getElementById('btn-save-env');
+  
+  // 选择环境
+  envSelect.addEventListener('change', async (e) => {
+    const idx = parseInt(e.target.value);
+    if (isNaN(idx)) {
+      // 添加新环境
+      document.getElementById('env-name').value = '';
+      document.getElementById('zstack-endpoint').value = '';
+      document.getElementById('zstack-account').value = 'admin';
+      document.getElementById('zstack-password').value = '';
+      currentEnvId = null;
+    } else {
+      // 切换到已有环境
+      currentEnvId = idx;
+      const env = environments[idx];
+      if (env) {
+        document.getElementById('platform-type').value = env.platform || 'zstack';
+        document.getElementById('env-name').value = env.name || '';
+        document.getElementById('zstack-endpoint').value = env.endpoint || '';
+        document.getElementById('zstack-account').value = env.account || 'admin';
+        document.getElementById('zstack-password').value = env.password || '';
+      }
+    }
+    await chrome.storage.local.set({ currentEnvId });
+  });
+  
+  // 添加环境按钮
+  btnAddEnv?.addEventListener('click', () => {
+    currentEnvId = null;
+    document.getElementById('env-name').value = '';
+    document.getElementById('zstack-endpoint').value = '';
+    document.getElementById('zstack-account').value = 'admin';
+    document.getElementById('zstack-password').value = '';
+    document.getElementById('platform-type').value = 'zstack';
+    document.getElementById('env-select').value = '';
+  });
+  
+  // 保存环境按钮
+  btnSaveEnv?.addEventListener('click', async () => {
+    const platform = document.getElementById('platform-type').value;
+    const name = document.getElementById('env-name').value || `环境 ${environments.length + 1}`;
+    const endpoint = document.getElementById('zstack-endpoint').value.trim();
+    const account = document.getElementById('zstack-account').value.trim() || 'admin';
+    const password = document.getElementById('zstack-password').value;
+    
+    if (!endpoint) {
+      showError('请输入 API 地址');
+      return;
+    }
+    
+    const env = { platform, name, endpoint, account, password };
+    
+    if (currentEnvId !== null && currentEnvId < environments.length) {
+      environments[currentEnvId] = env;
+    } else {
+      environments.push(env);
+      currentEnvId = environments.length - 1;
+    }
+    
+    await chrome.storage.local.set({ 
+      environments, 
+      currentEnvId,
+      // 同时更新当前连接配置
+      zstackEndpoint: endpoint,
+      zstackAccount: account,
+      zstackPassword: password
+    });
+    
+    renderEnvSelector();
+    document.getElementById('env-select').value = currentEnvId;
+    showMessage('✅ 环境已保存');
+  });
+}
