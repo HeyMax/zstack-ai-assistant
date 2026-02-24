@@ -3,8 +3,9 @@ export class ZStackClient {
   constructor() {
     this.endpoint = '';
     this.sessionId = null;
-    this.version = null;  // ZStack version info
-    this.isEnterprise = false;  // Enterprise edition flag
+    this._accountName = null;
+    this._password = null;
+    this._relogging = false;
   }
 
   configure(endpoint) {
@@ -15,59 +16,11 @@ export class ZStackClient {
     return !!this.sessionId;
   }
 
-  // Get ZStack version info
-  async getVersion() {
-    if (this.version) return this.version;
-    try {
-      // Use the correct API: PUT /zstack/v1/management-nodes/actions with {"getVersion": {}}
-      const res = await this._rawPut('/v1/management-nodes/actions', { getVersion: {} });
-      if (res && res.version) {
-        // Parse version string like "4.8.30" into major/minor/update
-        const parts = res.version.split('.');
-        this.version = {
-          major: parseInt(parts[0]) || 0,
-          minor: parseInt(parts[1]) || 0,
-          update: parseInt(parts[2]) || 0,
-          full: res.version
-        };
-      }
-      return this.version;
-    } catch (e) {
-      console.warn('Failed to get ZStack version:', e);
-    }
-    return this.version;
-  }
-
-  // Check if connected to Enterprise edition
-  async checkEnterprise() {
-    try {
-      // Try to get license info
-      const res = await this._rawPut('/v1/management-nodes/actions', { getLicense: {} });
-      this.isEnterprise = res && res.licensed === true;
-    } catch (e) {
-      // Fallback: try premium APIs
-      try {
-        await this._get('/zstack/v1/premium/license');
-        this.isEnterprise = true;
-      } catch (e2) {
-        this.isEnterprise = false;
-      }
-    }
-    return this.isEnterprise;
-  }
-
-  // Initialize version info after login
-  async initVersionInfo() {
-    try {
-      await this.getVersion();
-      await this.checkEnterprise();
-      console.log(`ZStack Version: ${JSON.stringify(this.version)}, Enterprise: ${this.isEnterprise}`);
-    } catch (e) {
-      console.warn('Version init failed:', e);
-    }
-  }
-
   async login(accountName, password) {
+    // Save credentials for auto-reconnect on session expiry
+    this._accountName = accountName;
+    this._password = password;
+
     // ZStack requires SHA-512 hashed password
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
@@ -80,11 +33,22 @@ export class ZStackClient {
     });
     this.sessionId = res.inventory?.uuid;
     if (!this.sessionId) throw new Error('登录失败：未获取到 session');
-    
-    // Initialize version info after successful login
-    await this.initVersionInfo();
-    
     return res;
+  }
+
+  // Re-login when session expires, returns true if successful
+  async _relogin() {
+    if (this._relogging || !this._accountName || !this._password) return false;
+    this._relogging = true;
+    try {
+      this.sessionId = null;
+      await this.login(this._accountName, this._password);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this._relogging = false;
+    }
   }
 
   // ========== Generic API Methods ==========
@@ -99,7 +63,12 @@ export class ZStackClient {
   }
 
   async get(resourcePath, uuid) {
-    return this._get(`/${resourcePath}/${uuid}`);
+    const data = await this._get(`/${resourcePath}/${uuid}`);
+    // 兼容不同 ZStack 版本：有的返回 inventory（单对象），有的返回 inventories[]（数组）
+    if (!data.inventory && data.inventories?.length > 0) {
+      data.inventory = data.inventories[0];
+    }
+    return data;
   }
 
   async create(resourcePath, body) {
@@ -204,45 +173,47 @@ export class ZStackClient {
   // ========== HTTP Methods ==========
 
   async _get(path) {
-    const res = await fetch(`${this.endpoint}/zstack${path}`, {
-      headers: this._headers()
+    return this._withRetry(async () => {
+      const res = await fetch(`${this.endpoint}/zstack${path}`, {
+        headers: this._headers()
+      });
+      return this._handleResponse(res);
     });
-    return this._handleResponse(res);
   }
 
   async _rawPost(path, body) {
-    const res = await fetch(`${this.endpoint}/zstack${path}`, {
-      method: 'POST',
-      headers: this._headers(),
-      body: JSON.stringify(body)
-    });
-    return this._handleResponse(res);
-  }
-
-  async _rawPut(path, body) {
-    const res = await fetch(`${this.endpoint}/zstack${path}`, {
-      method: 'PUT',
-      headers: this._headers(),
-      body: JSON.stringify(body)
-    });
-    return this._handleResponse(res);
+    // Login requests should not retry (avoid infinite loop)
+    const isLogin = path.includes('/accounts/login');
+    const doRequest = async () => {
+      const res = await fetch(`${this.endpoint}/zstack${path}`, {
+        method: 'POST',
+        headers: this._headers(),
+        body: JSON.stringify(body)
+      });
+      return this._handleResponse(res);
+    };
+    return isLogin ? doRequest() : this._withRetry(doRequest);
   }
 
   async _put(path, body) {
-    const res = await fetch(`${this.endpoint}/zstack${path}`, {
-      method: 'PUT',
-      headers: this._headers(),
-      body: JSON.stringify(body)
+    return this._withRetry(async () => {
+      const res = await fetch(`${this.endpoint}/zstack${path}`, {
+        method: 'PUT',
+        headers: this._headers(),
+        body: JSON.stringify(body)
+      });
+      return this._handleResponse(res);
     });
-    return this._handleResponse(res);
   }
 
   async _delete(path) {
-    const res = await fetch(`${this.endpoint}/zstack${path}`, {
-      method: 'DELETE',
-      headers: this._headers()
+    return this._withRetry(async () => {
+      const res = await fetch(`${this.endpoint}/zstack${path}`, {
+        method: 'DELETE',
+        headers: this._headers()
+      });
+      return this._handleResponse(res);
     });
-    return this._handleResponse(res);
   }
 
   _headers() {
@@ -251,14 +222,40 @@ export class ZStackClient {
     return h;
   }
 
+  _isSessionExpired(res, data) {
+    if (res.status === 401 || res.status === 403) return true;
+    const errMsg = (data?.error?.details || data?.error?.description || '').toLowerCase();
+    if (errMsg.includes('session') && (errMsg.includes('expired') || errMsg.includes('invalid'))) return true;
+    if (errMsg.includes('token') && errMsg.includes('invalid')) return true;
+    return false;
+  }
+
   async _handleResponse(res) {
     const text = await res.text();
     let data;
     try { data = JSON.parse(text); } catch { data = text; }
     if (!res.ok) {
-      const msg = data?.error?.details || data?.error?.description || `HTTP ${res.status}`;
+      const msg = data?.error?.details || data?.error?.description
+        || (typeof data === 'string' && data.length < 200 ? data : null)
+        || `HTTP ${res.status}`;
       throw new Error(msg);
     }
     return data;
+  }
+
+  // Wrap a request fn with auto-retry on session expiry
+  async _withRetry(requestFn) {
+    try {
+      return await requestFn();
+    } catch (e) {
+      // Check if this looks like a session expiry error
+      const msg = (e.message || '').toLowerCase();
+      const isExpiry = msg.includes('session') || msg.includes('token') || msg.includes('401') || msg.includes('403');
+      if (isExpiry && !this._relogging) {
+        const ok = await this._relogin();
+        if (ok) return await requestFn();
+      }
+      throw e;
+    }
   }
 }
