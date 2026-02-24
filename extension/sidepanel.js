@@ -114,7 +114,7 @@ async function loadSettings() {
     data.llmApiKey = '';
     data.llmModel = '';
     // First time: show settings panel to guide user
-    settingsPanel.classList.remove('hidden');
+    document.getElementById('panel-zstack').classList.remove('hidden');
     // Switch to LLM tab
     setTimeout(() => {
       document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
@@ -166,7 +166,7 @@ function checkSetupGuide() {
 }
 
 function setupEventListeners() {
-  btnSettings.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
+  btnSettings.addEventListener('click', () => document.getElementById('panel-theme').classList.toggle('hidden'));
   btnClear.addEventListener('click', clearChat);
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
@@ -862,7 +862,7 @@ function setupEnvEventListeners() {
     document.getElementById('env-select').value = '';
     setStatus('disconnected', '请配置新环境');
     // 打开设置面板
-    settingsPanel.classList.remove('hidden');
+    document.getElementById('panel-zstack').classList.remove('hidden');
     document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
     document.querySelector('.settings-tab[data-tab="zstack"]').classList.add('active');
@@ -901,10 +901,6 @@ function setupEnvEventListeners() {
   // AI 模型配置按钮
   const btnLLMConfig = document.getElementById('btn-llm-config');
   btnLLMConfig?.addEventListener('click', () => {
-    settingsPanel.classList.remove('hidden');
-    document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
-    document.querySelector('.settings-tab[data-tab="llm"]').classList.add('active');
-    document.getElementById('tab-llm').classList.remove('hidden');
+    document.getElementById('panel-llm').classList.remove('hidden');
   });
 }
