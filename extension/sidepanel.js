@@ -743,6 +743,12 @@ function renderEnvSelector() {
     if (index === currentEnvId) option.selected = true;
     select.appendChild(option);
   });
+  
+  // 显示当前环境名
+  const envName = currentEnvId !== null && environments[currentEnvId] 
+    ? environments[currentEnvId].name 
+    : '未选择环境';
+  document.getElementById('status-text').textContent = envName;
 }
 
 function setupEnvEventListeners() {
@@ -750,18 +756,20 @@ function setupEnvEventListeners() {
   const btnAddEnv = document.getElementById('btn-add-env');
   const btnSaveEnv = document.getElementById('btn-save-env');
   
-  // 选择环境
+  // 选择环境 - 自动连接
   envSelect.addEventListener('change', async (e) => {
     const idx = parseInt(e.target.value);
     if (isNaN(idx)) {
-      // 添加新环境
+      // 添加新环境 - 清空表单
       document.getElementById('env-name').value = '';
       document.getElementById('zstack-endpoint').value = '';
       document.getElementById('zstack-account').value = 'admin';
       document.getElementById('zstack-password').value = '';
+      document.getElementById('platform-type').value = 'zstack';
       currentEnvId = null;
+      setStatus('disconnected', '未连接');
     } else {
-      // 切换到已有环境
+      // 切换到已有环境 - 自动连接
       currentEnvId = idx;
       const env = environments[idx];
       if (env) {
@@ -770,12 +778,39 @@ function setupEnvEventListeners() {
         document.getElementById('zstack-endpoint').value = env.endpoint || '';
         document.getElementById('zstack-account').value = env.account || 'admin';
         document.getElementById('zstack-password').value = env.password || '';
+        
+        // 自动连接
+        await chrome.storage.local.set({ 
+          currentEnvId,
+          zstackEndpoint: env.endpoint,
+          zstackAccount: env.account,
+          zstackPassword: env.password
+        });
+        
+        // 触发连接
+        setStatus('connecting', '连接中...');
+        try {
+          zstack.configure(env.endpoint);
+          await zstack.login(env.account, env.password);
+          setStatus('connected', `已连接 ${env.endpoint}`);
+          
+          // 清空对话历史（不同环境分开）
+          llm.clearHistory();
+          chatHistory = [];
+          chrome.storage.local.set({ chatHistory: [] });
+          
+          configureLLM();
+          showMessage(`✅ 已切换到环境: ${env.name}`);
+        } catch (err) {
+          setStatus('disconnected', '连接失败');
+          showError(`连接失败: ${err.message}`);
+        }
       }
     }
     await chrome.storage.local.set({ currentEnvId });
   });
   
-  // 添加环境按钮
+  // 添加环境按钮 - 清空表单准备新增
   btnAddEnv?.addEventListener('click', () => {
     currentEnvId = null;
     document.getElementById('env-name').value = '';
@@ -784,9 +819,11 @@ function setupEnvEventListeners() {
     document.getElementById('zstack-password').value = '';
     document.getElementById('platform-type').value = 'zstack';
     document.getElementById('env-select').value = '';
+    setStatus('disconnected', '请配置新环境');
+    settingsPanel.classList.remove('hidden');
   });
   
-  // 保存环境按钮
+  // 保存环境按钮 - 保存并连接
   btnSaveEnv?.addEventListener('click', async () => {
     const platform = document.getElementById('platform-type').value;
     const name = document.getElementById('env-name').value || `环境 ${environments.length + 1}`;
@@ -811,7 +848,6 @@ function setupEnvEventListeners() {
     await chrome.storage.local.set({ 
       environments, 
       currentEnvId,
-      // 同时更新当前连接配置
       zstackEndpoint: endpoint,
       zstackAccount: account,
       zstackPassword: password
@@ -819,6 +855,18 @@ function setupEnvEventListeners() {
     
     renderEnvSelector();
     document.getElementById('env-select').value = currentEnvId;
-    showMessage('✅ 环境已保存');
+    
+    // 保存后自动连接
+    setStatus('connecting', '连接中...');
+    try {
+      zstack.configure(endpoint);
+      await zstack.login(account, password);
+      setStatus('connected', `已连接 ${endpoint}`);
+      configureLLM();
+      showMessage(`✅ 环境 "${name}" 已保存并连接`);
+    } catch (err) {
+      setStatus('disconnected', '连接失败');
+      showError(`保存成功但连接失败: ${err.message}`);
+    }
   });
 }
