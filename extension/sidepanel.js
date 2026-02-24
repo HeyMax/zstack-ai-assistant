@@ -423,7 +423,6 @@ async function connectZStack() {
   renderEnvSelector();
   document.getElementById('env-select').value = currentEnvId;
 }
-}
 
 function configureLLM() {
   const provider = document.getElementById('llm-provider').value;
