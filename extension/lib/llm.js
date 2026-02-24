@@ -519,10 +519,7 @@ export class LLMEngine {
       const fixPath = (p) => p && !p.startsWith('v1/') ? `v1/${p}` : p;
 
       switch (name) {
-        // === System ===
-        case 'zstack_get_version':
-          return await cli.getVersion();
-        case 'zstack_query':
+                case 'zstack_query':
           return await cli.query(fixPath(args.resource_path), args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
         case 'zstack_get':
           return await cli.get(fixPath(args.resource_path), args.uuid);
@@ -692,20 +689,7 @@ const QUERY_MODE_FULL = `
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
-  // --- System Tools ---
-  {
-    type: 'function',
-    function: {
-      name: 'zstack_get_version',
-      description: '获取 ZStack 平台版本信息，返回版本号如 "4.8.30"',
-      parameters: {
-        type: 'object',
-        properties: {},
-        required: []
-      }
-    }
-  },
-  {
+    {
     type: 'function',
     function: {
       name: 'zstack_query',
