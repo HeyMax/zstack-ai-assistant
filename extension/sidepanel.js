@@ -795,7 +795,7 @@ function setupEnvEventListeners() {
   const btnConnectEnv = document.getElementById('btn-connect-env');
   const btnAddEnv = document.getElementById('btn-add-env');
   
-  // 选择环境 - 加载配置到表单
+  // 选择环境 - 加载配置并自动连接
   envSelect.addEventListener('change', async (e) => {
     const idx = parseInt(e.target.value);
     if (isNaN(idx)) {
@@ -808,7 +808,7 @@ function setupEnvEventListeners() {
       currentEnvId = null;
       setStatus('disconnected', '请添加环境');
     } else {
-      // 选中已有环境 - 加载配置到表单
+      // 选中已有环境 - 加载配置并自动连接
       currentEnvId = idx;
       const env = environments[idx];
       if (env) {
@@ -817,6 +817,25 @@ function setupEnvEventListeners() {
         document.getElementById('zstack-endpoint').value = env.endpoint || '';
         document.getElementById('zstack-account').value = env.account || 'admin';
         document.getElementById('zstack-password').value = env.password || '';
+        
+        // 自动连接
+        setStatus('connecting', '连接中...');
+        try {
+          zstack.configure(env.endpoint);
+          await zstack.login(env.account, env.password);
+          setStatus('connected', `已连接 ${env.endpoint}`);
+          
+          // 清空对话历史
+          llm.clearHistory();
+          chatHistory = [];
+          chrome.storage.local.set({ chatHistory: [] });
+          
+          configureLLM();
+          showMessage(`✅ 已切换到环境: ${env.name}`);
+        } catch (err) {
+          setStatus('disconnected', '连接失败');
+          showError(`连接失败: ${err.message}`);
+        }
       }
     }
   });
