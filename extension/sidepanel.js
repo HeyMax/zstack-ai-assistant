@@ -166,11 +166,17 @@ function checkSetupGuide() {
 }
 
 function setupEventListeners() {
-  btnSettings.addEventListener('click', () => showMessage("🎨 主题设置即将推出"));
+  btnSettings.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
   btnClear.addEventListener('click', clearChat);
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
-  document.getElementById('btn-export').addEventListener('click', exportConversation);
+
+  document.getElementById('btn-save-theme').addEventListener('click', async () => {
+    const color = document.getElementById('theme-color').value;
+    await chrome.storage.local.set({ themeColor: color });
+    showMessage("✅ 主题已保存");
+    settingsPanel.classList.add('hidden');
+  });  document.getElementById('btn-export').addEventListener('click', exportConversation);
 
   // Stop button
   if (btnStop) {

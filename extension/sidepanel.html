@@ -50,6 +50,7 @@
     <div class="settings-tabs">
       <button class="settings-tab active" data-tab="zstack">☁️ 云平台</button>
       <button class="settings-tab" data-tab="llm">🤖 AI 模型</button>
+      <button class="settings-tab" data-tab="theme">🎨 主题</button>
     </div>
     
     <div class="settings-content" id="tab-zstack">
@@ -110,6 +111,19 @@
         </div>
       </div>
       <button id="btn-save-llm" class="btn btn-primary btn-full">保存配置</button>
+    </div>
+    
+    <div class="settings-content hidden" id="tab-theme">
+      <div class="field">
+        <label>主题颜色</label>
+        <select id="theme-color">
+          <option value="default">默认 (蓝色)</option>
+          <option value="green">绿色</option>
+          <option value="purple">紫色</option>
+          <option value="orange">橙色</option>
+        </select>
+      </div>
+      <button id="btn-save-theme" class="btn btn-primary btn-full">保存</button>
     </div>
   </div>
 
