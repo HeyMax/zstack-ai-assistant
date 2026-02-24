@@ -93,7 +93,6 @@ async function loadSettings() {
 
   // 渲染环境选择器
   renderEnvSelector();
-    showMessage(`✅ 已保存环境: ${envName}`);
 
   // 如果有选中的环境，从环境加载配置；否则从全局配置加载
   const env = currentEnvId !== null ? environments[currentEnvId] : null;
