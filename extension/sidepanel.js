@@ -386,28 +386,24 @@ async function connectZStack() {
 
   setStatus('connecting', '连接中...');
 
+  // 先保存环境信息（不管连接是否成功）
+  const env = { platform, name: envName, endpoint, account, password };
+  const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
+  if (existingIdx >= 0) {
+    environments[existingIdx] = env;
+    currentEnvId = existingIdx;
+  } else {
+    environments.push(env);
+    currentEnvId = environments.length - 1;
+  }
+  await chrome.storage.local.set({ environments, currentEnvId, zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
+  renderEnvSelector();
+  document.getElementById('env-select').value = currentEnvId;
+  showMessage(`✅ 已保存环境: ${envName}`);
+
   try {
     zstack.configure(endpoint);
     await zstack.login(account, password);
-    
-    // 保存到全局配置
-    await chrome.storage.local.set({ zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
-    
-    // 保存到环境列表（如果不存在）
-    const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
-    const env = { platform, name: envName, endpoint, account, password };
-    if (existingIdx >= 0) {
-      environments[existingIdx] = env;
-      currentEnvId = existingIdx;
-    } else {
-      environments.push(env);
-      currentEnvId = environments.length - 1;
-    }
-    await chrome.storage.local.set({ environments, currentEnvId });
-    renderEnvSelector();
-    showMessage(`✅ 已保存环境: ${envName}`);
-    document.getElementById('env-select').value = currentEnvId;
-    
     setStatus('connected', `已连接 ${endpoint}`);
     configureLLM();
     settingsPanel.classList.add('hidden');
