@@ -91,6 +91,10 @@ export class ZStackClient {
   }
 
   async action(resourcePath, uuid, body) {
+    // 如果 uuid 为空或 undefined，直接调用 /resourcePath/actions
+    if (!uuid) {
+      return this._put(`/${resourcePath}/actions`, body);
+    }
     return this._put(`/${resourcePath}/${uuid}/actions`, body);
   }
 
