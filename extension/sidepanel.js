@@ -166,7 +166,7 @@ function checkSetupGuide() {
 }
 
 function setupEventListeners() {
-  btnSettings.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
+  btnSettings.addEventListener('click', () => showMessage("🎨 主题设置即将推出"));
   btnClear.addEventListener('click', clearChat);
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
