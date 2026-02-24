@@ -11,13 +11,18 @@
 - **流式响应** — 实时逐字输出，支持停止生成，思考过程可视化
 - **6 家模型厂商** — Claude、GLM、GPT、DeepSeek、通义千问、MiniMax，支持自定义代理
 - **纯客户端** — 所有数据在浏览器本地处理，密码 SHA-512 哈希，不经过第三方
+- **版本自适应** — 自动检测 ZStack 版本，加载对应的功能提示
+- **完整 API 规范** — 遵循 ZStack 官方 RESTful API 规范
 
 ## 快速开始
 
 1. 下载本仓库 `extension/` 目录
 2. Chrome 打开 `chrome://extensions/`，开启"开发者模式"
 3. 点击"加载已解压的扩展程序"，选择 `extension/` 目录
-4. 点击扩展图标，在侧边栏完成配置
+4. 点击扩展图标，在侧边栏完成配置：
+   - ZStack API 地址（如 `http://172.24.0.254:8080`）
+   - 账号密码
+   - 选择 LLM 模型并配置 API Key
 
 ## 项目结构
 
@@ -41,15 +46,26 @@
 ## 技术架构
 
 ```
-用户 ──→ Chrome Side Panel ──→ LLM Engine ──→ OpenAI/Anthropic API
+用户 ──→ Chrome Side Panel ──→ LLM Engine ──→ OpenAI/Anthropic/MiniMax API
                                     │
                                     ▼
                               ZStack Client ──→ ZStack REST API + ZQL
 ```
 
 - 前端：原生 JS + CSS，零框架依赖
-- LLM：OpenAI Chat Completions 兼容格式 + Anthropic Messages API
+- LLM：OpenAI Chat Completions 兼容格式 + Anthropic Messages API + MiniMax API
 - 渲染：marked.js + DOMPurify
+
+## ZStack API 规范
+
+助手严格遵循 ZStack 官方 RESTful API 规范：
+
+- **API 版本**：/v1 开头
+- **HTTP 方法**：GET（查询）、POST（创建）、PUT（修改/操作）、DELETE（删除）
+- **认证**：登录获取 Session，Header 传递 `Authorization: OAuth {session-uuid}`
+- **参数传递**：URL、Query String、HTTP Body
+- **Action 调用**：`PUT /v1/{resource}/{uuid}/actions`，body: `{"actionName": {...}}`
+- **查询条件**：=、!=、>、<、~=（模糊匹配）、is null、not null
 
 ## 支持的模型
 
