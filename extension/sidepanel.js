@@ -862,4 +862,28 @@ function setupEnvEventListeners() {
     document.querySelector('.settings-tab[data-tab="zstack"]').classList.add('active');
     document.getElementById('tab-zstack').classList.remove('hidden');
   });
+  
+  // 删除环境按钮
+  const btnDeleteEnv = document.getElementById('btn-delete-env');
+  btnDeleteEnv?.addEventListener('click', async () => {
+    if (currentEnvId === null || currentEnvId === undefined || !environments[currentEnvId]) {
+      showError('请先选择要删除的环境');
+      return;
+    }
+    const envName = environments[currentEnvId].name;
+    if (!confirm(`确定要删除环境 "${envName}" 吗？`)) {
+      return;
+    }
+    environments.splice(currentEnvId, 1);
+    currentEnvId = null;
+    await chrome.storage.local.set({ environments, currentEnvId });
+    renderEnvSelector();
+    // 清空表单
+    document.getElementById('env-name').value = '';
+    document.getElementById('zstack-endpoint').value = '';
+    document.getElementById('zstack-account').value = 'admin';
+    document.getElementById('zstack-password').value = '';
+    setStatus('disconnected', '环境已删除');
+    showMessage('✅ 环境已删除');
+  });
 }
