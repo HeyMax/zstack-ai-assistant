@@ -200,7 +200,7 @@ export class ZStackClient {
   async _get(path) {
     return this._withRetry(async () => {
       const res = await fetch(`${this.endpoint}/zstack${path}`, {
-        headers: this._headers()
+        headers: this._headers(), mode: "cors", cache: "no-cache", redirect: "follow"
       });
       return this._handleResponse(res);
     });
@@ -212,7 +212,7 @@ export class ZStackClient {
     const doRequest = async () => {
       const res = await fetch(`${this.endpoint}/zstack${path}`, {
         method: 'POST',
-        headers: this._headers(),
+        headers: this._headers(), mode: "cors", cache: "no-cache", redirect: "follow",
         body: JSON.stringify(body)
       });
       return this._handleResponse(res);
@@ -224,7 +224,7 @@ export class ZStackClient {
     return this._withRetry(async () => {
       const res = await fetch(`${this.endpoint}/zstack${path}`, {
         method: 'PUT',
-        headers: this._headers(),
+        headers: this._headers(), mode: "cors", cache: "no-cache", redirect: "follow",
         body: JSON.stringify(body)
       });
       return this._handleResponse(res);
@@ -235,7 +235,7 @@ export class ZStackClient {
     return this._withRetry(async () => {
       const res = await fetch(`${this.endpoint}/zstack${path}`, {
         method: 'DELETE',
-        headers: this._headers()
+        headers: this._headers(), mode: "cors", cache: "no-cache", redirect: "follow"
       });
       return this._handleResponse(res);
     });
