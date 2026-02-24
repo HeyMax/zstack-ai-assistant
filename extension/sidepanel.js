@@ -847,14 +847,9 @@ function setupEnvEventListeners() {
     }
   });
   
-  // 添加环境按钮 - 清空表单准备新增
+  // 添加环境按钮 - 打开设置页面准备新增
   btnAddEnv?.addEventListener('click', () => {
-    currentEnvId = null;
-    document.getElementById('env-name').value = '';
-    document.getElementById('zstack-endpoint').value = '';
-    document.getElementById('zstack-account').value = 'admin';
-    document.getElementById('zstack-password').value = '';
-    document.getElementById('platform-type').value = 'zstack';
+    currentEnvId = null;  // 标记为新增模式
     document.getElementById('env-select').value = '';
     setStatus('disconnected', '请配置新环境');
     // 打开设置面板
