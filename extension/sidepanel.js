@@ -385,20 +385,30 @@ async function connectZStack() {
 
   setStatus('connecting', '连接中...');
 
-  // 先保存环境信息（不管连接是否成功）
-  const env = { platform, name: envName, endpoint, account, password };
+  // 检测重复环境
   const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
   if (existingIdx >= 0) {
-    environments[existingIdx] = env;
+    // 已有该环境，显示提示并切换到该环境
+    const existingEnv = environments[existingIdx];
     currentEnvId = existingIdx;
-  } else {
+    await chrome.storage.local.set({ currentEnvId });
+    renderEnvSelector();
+    document.getElementById('env-select').value = currentEnvId;
+    showMessage(`⚠️ 已有该环境配置，环境名称：${existingEnv.name}`);
+  }
+
+  // 保存环境信息
+  const env = { platform, name: envName, endpoint, account, password };
+  if (existingIdx < 0) {
     environments.push(env);
     currentEnvId = environments.length - 1;
   }
   await chrome.storage.local.set({ environments, currentEnvId, zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
   renderEnvSelector();
   document.getElementById('env-select').value = currentEnvId;
-  showMessage(`✅ 已保存环境: ${envName}`);
+  if (existingIdx < 0) {
+    showMessage(`✅ 已保存环境: ${envName}`);
+  }
 
   try {
     zstack.configure(endpoint);
