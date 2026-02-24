@@ -388,13 +388,14 @@ async function connectZStack() {
   // 检测重复环境
   const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
   if (existingIdx >= 0) {
-    // 已有该环境，显示提示并切换到该环境
+    // 已有该环境，显示提示并切换到该环境（不重复添加）
     const existingEnv = environments[existingIdx];
     currentEnvId = existingIdx;
     await chrome.storage.local.set({ currentEnvId });
     renderEnvSelector();
     document.getElementById('env-select').value = currentEnvId;
     showMessage(`⚠️ 已有该环境配置，环境名称：${existingEnv.name}`);
+    return;  // 不再保存，直接返回
   }
 
   // 保存环境信息
@@ -799,7 +800,7 @@ function renderEnvSelector() {
 
 function setupEnvEventListeners() {
   const envSelect = document.getElementById('env-select');
-  const btnConnectEnv = document.getElementById('btn-connect-env');
+  
   const btnAddEnv = document.getElementById('btn-add-env');
   
   // 选择环境 - 加载配置并自动连接
@@ -848,59 +849,6 @@ function setupEnvEventListeners() {
   });
   
   // 连接按钮 - 保存并连接
-  btnConnectEnv?.addEventListener('click', async () => {
-    const platform = document.getElementById('platform-type').value;
-    const name = document.getElementById('env-name').value || `环境 ${environments.length + 1}`;
-    const endpoint = document.getElementById('zstack-endpoint').value.trim();
-    const account = document.getElementById('zstack-account').value.trim() || 'admin';
-    const password = document.getElementById('zstack-password').value;
-    
-    if (!endpoint) {
-      showError('请输入 API 地址');
-      return;
-    }
-    
-    const env = { platform, name, endpoint, account, password };
-    
-    // 更新或新增环境
-    if (currentEnvId !== null && currentEnvId < environments.length) {
-      environments[currentEnvId] = env;
-    } else {
-      environments.push(env);
-      currentEnvId = environments.length - 1;
-    }
-    
-    await chrome.storage.local.set({ 
-      environments, 
-      currentEnvId,
-      zstackEndpoint: endpoint,
-      zstackAccount: account,
-      zstackPassword: password
-    });
-    
-    renderEnvSelector();
-    showMessage(`✅ 已保存环境: ${envName}`);
-    document.getElementById('env-select').value = currentEnvId;
-    
-    // 连接
-    setStatus('connecting', '连接中...');
-    try {
-      zstack.configure(endpoint);
-      await zstack.login(account, password);
-      setStatus('connected', `已连接 ${endpoint}`);
-      
-      // 清空对话历史
-      llm.clearHistory();
-      chatHistory = [];
-      chrome.storage.local.set({ chatHistory: [] });
-      
-      configureLLM();
-      showMessage(`✅ 已连接环境: ${name}`);
-    } catch (err) {
-      setStatus('disconnected', '连接失败');
-      showError(`连接失败: ${err.message}`);
-    }
-  });
   
   // 添加环境按钮 - 打开设置页面准备新增
   btnAddEnv?.addEventListener('click', () => {
