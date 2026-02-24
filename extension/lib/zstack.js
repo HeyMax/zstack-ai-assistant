@@ -36,6 +36,13 @@ export class ZStackClient {
     return res;
   }
 
+  // 获取 ZStack 版本
+  async getVersion() {
+    // PUT /v1/management-nodes/actions with {"getVersion": {}}
+    const res = await this._put('/v1/management-nodes/actions', { getVersion: {} });
+    return res.version;
+  }
+
   // Re-login when session expires, returns true if successful
   async _relogin() {
     if (this._relogging || !this._accountName || !this._password) return false;
