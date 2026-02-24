@@ -880,7 +880,7 @@ const SYSTEM_PROMPT_BASE = `你是 ZStack 云平台智能运维助手，拥有�
 ---
 
 ## ⚠️ 重要：API 调用规则
-当用户问以下问题时，**必须**使用 `zstack_action` 工具调用 API 查询：
+当用户问以下问题时，**必须**使用 \`zstack_action\` 工具调用 API 查询：
 1. 问平台版本 → 调用 PUT /v1/management-nodes/actions，body: {"getVersion": {}}
 2. 问资源数量/列表 → 调用 GET /v1/资源名
 3. 问具体资源详情 → 调用 GET /v1/资源名/{uuid}
