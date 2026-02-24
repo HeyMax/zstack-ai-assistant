@@ -634,6 +634,14 @@ certificates, ldap/servers, licenses
 
 ## 创建资源的 body 格式
 创建资源时 body 通常为 { "params": { ...fields } }，具体字段参考 ZStack API 文档。
+
+### 版本查询
+- **API**: PUT /zstack/v1/management-nodes/actions
+- **Body**: {"getVersion": {}}
+- **返回**: {"success": true, "version": "4.8.30"}
+
+### 创建云主机
+创建资源时 body 通常为 { "params": { ...fields } }，具体字段参考 ZStack API 文档。
 常见创建示例：
 - 创建云主机: { "params": { "name": "xxx", "instanceOfferingUuid": "xxx", "imageUuid": "xxx", "l3NetworkUuids": ["xxx"] } }
 - 创建VIP: { "params": { "name": "xxx", "l3NetworkUuid": "xxx" } }
