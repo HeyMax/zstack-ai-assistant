@@ -187,6 +187,9 @@ export class LLMEngine {
 
     try {
       switch (name) {
+        // === System ===
+        case 'zstack_get_version':
+          return await cli.getVersion();
         // === Generic API ===
         case 'zstack_query':
           return await cli.query(args.resource_path, args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
@@ -770,6 +773,19 @@ Action 操作 body 格式为 { "actionName": { ...params } }，例如：
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
+  // --- System Tools ---
+  {
+    type: 'function',
+    function: {
+      name: 'zstack_get_version',
+      description: '获取 ZStack 平台版本信息，无需参数。返回版本号如 "4.8.30"',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  },
   // --- Generic API Tools ---
   {
     type: 'function',
