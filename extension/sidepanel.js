@@ -395,7 +395,7 @@ async function connectZStack() {
     checkSetupGuide();
   } catch (e) {
     setStatus('disconnected', '连接失败');
-    showError(`连接失败: ${e.message}`);
+    showError(`连接失败: ${e.message || e}`);
     return;  // 连接失败，不保存
   }
 
