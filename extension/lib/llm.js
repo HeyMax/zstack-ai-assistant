@@ -1,382 +1,157 @@
-// LLM Engine with ZStack Full API Coverage + Streaming Support
+// LLM Engine with ZStack Full API Coverage
 export class LLMEngine {
   constructor() {
     this.apiKey = '';
     this.baseUrl = '';
     this.provider = 'openai';
-    this.model = '';
+    this.model = 'gpt-4o-mini';
     this.messages = [];
     this.zstackClient = null;
-    this.queryMode = 'compact';
-    this._abortController = null;
+    this.versionInfo = null;
   }
 
-  configure({ apiKey, baseUrl, provider, model, zstackClient, queryMode }) {
-    if (apiKey !== undefined) this.apiKey = apiKey;
+  configure({ apiKey, baseUrl, provider, model, zstackClient }) {
+    if (apiKey) this.apiKey = apiKey;
     if (baseUrl !== undefined) this.baseUrl = baseUrl;
     if (provider) this.provider = provider;
-    if (model !== undefined) this.model = model;
+    if (model) this.model = model;
     if (zstackClient) this.zstackClient = zstackClient;
-    if (queryMode) this.queryMode = queryMode;
+  }
+
+  // Get version-specific system prompt
+  async getVersionAwarePrompt() {
+    let versionPrompt = '';
+    let enterprisePrompt = '';
+    
+    if (this.zstackClient && this.zstackClient.isLoggedIn()) {
+      try {
+        const version = await this.zstackClient.getVersion();
+        const isEnterprise = await this.zstackClient.checkEnterprise();
+        
+        if (version) {
+          const v = `${version.major}.${version.minor}.${version.update}`;
+          versionPrompt = `\n## 当前环境版本\n- ZStack 版本: ${v}\n`;
+          
+          // Version-specific hints
+          if (version.major >= 5 && version.minor >= 4) {
+            versionPrompt += `- 支持 KVM裸金属、DRS 动态资源调度、CDP 连续数据保护\n`;
+          }
+          if (version.major >= 5 && version.minor >= 5) {
+            versionPrompt += `- 支持 IAM2 身份管理、VPC 高可用、混合云增强\n`;
+          }
+        }
+        
+        if (isEnterprise) {
+          enterprisePrompt = `\n## 企业版功能\n当前连接为企业版，支持以下高级功能：\n- VPC（虚拟私有云）高级功能\n- DRS（动态资源调度）\n- 裸金属服务器管理\n- CDP（连续数据保护）\n- 混合云集成\n- 高级计费功能\n`;
+        }
+      } catch (e) {
+        console.warn('Failed to get version info:', e);
+      }
+    }
+    
+    return versionPrompt + enterprisePrompt;
   }
 
   clearHistory() { this.messages = []; }
-
-  abort() {
-    if (this._abortController) {
-      this._abortController.abort();
-      this._abortController = null;
-    }
-  }
-
-  _systemPrompt() {
-    const modeInstructions = this.queryMode === 'full'
-      ? QUERY_MODE_FULL
-      : QUERY_MODE_COMPACT;
-    return SYSTEM_PROMPT_BASE + '\n' + modeInstructions;
-  }
-
-  // Default base URLs per provider
-  static BASE_URLS = {
-    openai: 'https://api.openai.com/v1',
-    anthropic: 'https://api.anthropic.com/v1',
-    glm: 'https://open.bigmodel.cn/api/paas/v4',
-    deepseek: 'https://api.deepseek.com/v1',
-    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    minimax: 'https://api.minimax.chat/v1'
-  };
-
-  // Providers that use OpenAI-compatible API format
-  static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen', 'minimax']);
 
   async chat(userMessage, onEvent) {
     this.messages.push({ role: 'user', content: userMessage });
     const emit = (type, data) => { if (onEvent) onEvent({ type, ...data }); };
 
-    this._abortController = new AbortController();
-    const signal = this._abortController.signal;
-
     const maxRounds = 100;
     const startTime = Date.now();
-    const timeoutMs = 5 * 60 * 1000;
-
-    try {
-      for (let i = 0; i < maxRounds; i++) {
-        if (signal.aborted) {
-          return '已停止生成。';
-        }
-        if (Date.now() - startTime > timeoutMs) {
-          return '操作超时(5分钟)，部分操作可能已完成。请查看云平台确认状态。';
-        }
-
-        const isAnthropic = this.provider === 'anthropic' && !LLMEngine.OPENAI_COMPAT.has(this.provider);
-        const response = isAnthropic
-          ? await this._callAnthropicStream(emit, signal)
-          : await this._callOpenAIStream(emit, signal);
-
-        if (signal.aborted) {
-          return '已停止生成。';
-        }
-
-        if (!response.toolCalls || response.toolCalls.length === 0) {
-          this.messages.push({ role: 'assistant', content: response.content });
-          return response.content;
-        }
-
-        // Show what tools are being called with details
-        const toolNames = isAnthropic
-          ? response.toolCalls.map(tc => tc.name)
-          : response.toolCalls.map(tc => tc.function.name);
-        const toolDetails = isAnthropic
-          ? response.toolCalls.map(tc => {
-              const args = tc.input || {};
-              return this._formatToolDetail(tc.name, args);
-            })
-          : response.toolCalls.map(tc => {
-              try {
-                const args = JSON.parse(tc.function.arguments);
-                return this._formatToolDetail(tc.function.name, args);
-              } catch { return tc.function.name; }
-            });
-        emit('tool_start', { tools: toolNames, toolDetails, round: i + 1 });
-
-        // Execute tool calls
-        if (isAnthropic) {
-          this.messages.push({ role: 'assistant', content: response.rawContent });
-          const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
-          const results = await Promise.all(
-            response.toolCalls.map(async tc => {
-              try {
-                const result = await this._executeTool(tc.name, tc.input);
-                return {
-                  type: 'tool_result',
-                  tool_use_id: tc.id,
-                  content: JSON.stringify(result).slice(0, truncateLimit)
-                };
-              } catch (e) {
-                return {
-                  type: 'tool_result',
-                  tool_use_id: tc.id,
-                  content: JSON.stringify({ error: e.message })
-                };
-              }
-            })
-          );
-          this.messages.push({ role: 'user', content: results });
-        } else {
-          this.messages.push(response.rawMessage);
-          const truncateLimit = this.queryMode === 'full' ? 80000 : 30000;
-          const results = await Promise.all(
-            response.toolCalls.map(async tc => {
-              try {
-                const args = JSON.parse(tc.function.arguments);
-                const result = await this._executeTool(tc.function.name, args);
-                return {
-                  role: 'tool',
-                  tool_call_id: tc.id,
-                  content: JSON.stringify(result).slice(0, truncateLimit)
-                };
-              } catch (e) {
-                return {
-                  role: 'tool',
-                  tool_call_id: tc.id,
-                  content: JSON.stringify({ error: e.message })
-                };
-              }
-            })
-          );
-          results.forEach(r => this.messages.push(r));
-        }
-        emit('tool_done', { tools: toolNames, round: i + 1 });
+    const timeoutMs = 5 * 60 * 1000; // 5 minutes max
+    for (let i = 0; i < maxRounds; i++) {
+      if (Date.now() - startTime > timeoutMs) {
+        return '操作超时(5分钟)，部分操作可能已完成。请查看云平台确认状态。';
       }
-      return '操作轮次已达上限，部分操作可能已完成。请查看云平台确认状态。';
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        return '已停止生成。';
+      emit('status', { text: `思考中... (${i + 1})` });
+
+      const response = this.provider === 'anthropic'
+        ? await this._callAnthropic()
+        : await this._callOpenAI();
+
+      if (!response.toolCalls || response.toolCalls.length === 0) {
+        this.messages.push({ role: 'assistant', content: response.content });
+        emit('text', { text: response.content });
+        return response.content;
       }
-      throw e;
-    } finally {
-      this._abortController = null;
+
+      // Show what tools are being called
+      const toolNames = this.provider === 'anthropic'
+        ? response.toolCalls.map(tc => tc.name)
+        : response.toolCalls.map(tc => tc.function.name);
+      emit('tool_start', { tools: toolNames, round: i + 1 });
+
+      // If model also returned text alongside tool calls, emit it
+      if (response.content) emit('text', { text: response.content });
+
+      // Execute tool calls in parallel
+      if (this.provider === 'anthropic') {
+        this.messages.push({ role: 'assistant', content: response.rawContent });
+        const results = await Promise.all(
+          response.toolCalls.map(async tc => ({
+            type: 'tool_result',
+            tool_use_id: tc.id,
+            content: JSON.stringify(await this._executeTool(tc.name, tc.input)).slice(0, 8000)
+          }))
+        );
+        this.messages.push({ role: 'user', content: results });
+      } else {
+        this.messages.push(response.rawMessage);
+        const results = await Promise.all(
+          response.toolCalls.map(async tc => ({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: JSON.stringify(await this._executeTool(tc.function.name, JSON.parse(tc.function.arguments))).slice(0, 8000)
+          }))
+        );
+        results.forEach(r => this.messages.push(r));
+      }
+      emit('tool_done', { tools: toolNames, round: i + 1 });
     }
+    return '操作轮次已达上限(50轮)，部分操作可能已完成。请查看云平台确认状态，或分步执行剩余操作。';
   }
 
-  _formatToolDetail(name, args) {
-    switch (name) {
-      case 'zstack_query':
-        return `查询 ${args.resource_path || ''}${args.conditions?.length ? ' [' + args.conditions.join(', ') + ']' : ''}`;
-      case 'zstack_get':
-        return `获取 ${args.resource_path || ''} ${(args.uuid || '').slice(0, 8)}...`;
-      case 'zstack_create':
-        return `创建 ${args.resource_path || ''}`;
-      case 'zstack_delete':
-        return `删除 ${args.resource_path || ''} ${(args.uuid || '').slice(0, 8)}...`;
-      case 'zstack_action':
-        const actionName = args.body ? Object.keys(args.body)[0] : '';
-        return `执行 ${actionName} on ${args.resource_path || ''}`;
-      case 'zstack_update':
-        return `更新 ${args.resource_path || ''} ${(args.uuid || '').slice(0, 8)}...`;
-      case 'zstack_zql':
-        return `ZQL: ${(args.zql || '').slice(0, 60)}`;
-      default:
-        return name.replace(/_/g, ' ');
-    }
-  }
-
-  // Models that don't support tool calling
-  static NO_TOOL_MODELS = new Set(['deepseek-reasoner', 'o1', 'o1-mini']);
-
-  // Build request body with provider-specific adjustments
-  _buildOpenAIBody(stream = true) {
-    const supportsTools = !LLMEngine.NO_TOOL_MODELS.has(this.model);
-    const body = {
-      model: this.model,
-      messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
-      stream
-    };
-
-    // 不传 max_tokens，让各 provider 用模型默认上限，避免限制大模型能力
-
-    if (supportsTools) {
-      body.tools = TOOLS;
-      // tool_choice: some providers are strict about this
-      // GLM, MiniMax, Qwen all support 'auto'
-      body.tool_choice = 'auto';
-    }
-
-    return body;
-  }
-
-  // ========== OpenAI-compatible Streaming ==========
-  async _callOpenAIStream(emit, signal) {
-    const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
-    const base = this.baseUrl || defaultBase;
-    const url = `${base.replace(/\/$/, '')}/chat/completions`;
-
-    const body = this._buildOpenAIBody(true);
-
-    // Try streaming first; if provider rejects, fall back to non-streaming
-    let res;
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
-        body: JSON.stringify(body),
-        signal
-      });
-    } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      throw e;
-    }
-
-    // If streaming fails with certain errors, retry without streaming
-    if (!res.ok) {
-      const errText = await res.text();
-      let errMsg;
-      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
-
-      // Some providers reject stream+tools combo — fall back to non-streaming
-      const isStreamError = errMsg.toLowerCase().includes('stream') ||
-                            errMsg.toLowerCase().includes('not support');
-      if (isStreamError) {
-        return this._callOpenAINonStream(signal);
-      }
-      throw new Error(errMsg);
-    }
-
-    if (!res.ok) {
-      const errText = await res.text();
-      let errMsg;
-      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
-      throw new Error(errMsg);
-    }
-
-    // Parse SSE stream
-    let content = '';
-    const toolCalls = []; // { index -> { id, function: { name, arguments } } }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed === 'data: [DONE]') continue;
-          if (!trimmed.startsWith('data: ')) continue;
-
-          let chunk;
-          try {
-            chunk = JSON.parse(trimmed.slice(6));
-          } catch {
-            continue;
-          }
-
-          if (chunk.error) {
-            throw new Error(chunk.error.message || JSON.stringify(chunk.error));
-          }
-
-          const delta = chunk.choices?.[0]?.delta;
-          if (!delta) continue;
-
-          // Reasoning/thinking content (GLM-5, DeepSeek-R1 etc.)
-          if (delta.reasoning_content) {
-            emit('thinking_delta', { text: delta.reasoning_content });
-          }
-
-          // Text content
-          if (delta.content) {
-            content += delta.content;
-            emit('text_delta', { text: delta.content });
-          }
-
-          // Tool calls
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index;
-              if (!toolCalls[idx]) {
-                toolCalls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
-              }
-              if (tc.id) toolCalls[idx].id = tc.id;
-              if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
-              if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      // If we got partial content, return what we have
-      if (content && !toolCalls.length) {
-        return { content, toolCalls: null, rawMessage: { role: 'assistant', content } };
-      }
-      throw e;
-    }
-
-    const validToolCalls = toolCalls.filter(tc => tc && tc.id && tc.function.name);
-    const rawMessage = {
-      role: 'assistant',
-      content: content || null,
-      ...(validToolCalls.length > 0 ? { tool_calls: validToolCalls } : {})
-    };
-
-    return {
-      content: content || '',
-      toolCalls: validToolCalls.length > 0 ? validToolCalls : null,
-      rawMessage
-    };
-  }
-
-  // ========== OpenAI Non-Streaming Fallback ==========
-  async _callOpenAINonStream(signal) {
-    const defaultBase = LLMEngine.BASE_URLS[this.provider] || LLMEngine.BASE_URLS.openai;
-    const base = this.baseUrl || defaultBase;
-    const url = `${base.replace(/\/$/, '')}/chat/completions`;
-
-    const body = this._buildOpenAIBody(false);
-
+  async _callOpenAI() {
+    const url = this.baseUrl
+      ? `${this.baseUrl.replace(/\/$/, '')}/v1/chat/completions`
+      : 'https://api.openai.com/v1/chat/completions';
+    
+    // Get version-aware prompt additions
+    const versionAwareInfo = await this.getVersionAwarePrompt();
+    const fullSystemPrompt = versionAwareInfo ? SYSTEM_PROMPT + versionAwareInfo : SYSTEM_PROMPT;
+    
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
-      body: JSON.stringify(body),
-      signal
+      body: JSON.stringify({
+        model: this.model,
+        messages: [{ role: 'system', content: fullSystemPrompt }, ...this.messages],
+        tools: TOOLS,
+        tool_choice: 'auto',
+        max_tokens: 4096
+      })
     });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      let errMsg;
-      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
-      throw new Error(errMsg);
-    }
-
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
     const msg = data.choices[0].message;
-    const toolCalls = msg.tool_calls?.map(tc => ({
-      ...tc,
-      type: tc.type || 'function'
-    })) || null;
-
     return {
       content: msg.content || '',
-      toolCalls: toolCalls?.length > 0 ? toolCalls : null,
-      rawMessage: { ...msg, tool_calls: toolCalls?.length > 0 ? toolCalls : undefined }
+      toolCalls: msg.tool_calls || null,
+      rawMessage: msg
     };
   }
 
-  // ========== Anthropic Streaming ==========
-  async _callAnthropicStream(emit, signal) {
-    const defaultBase = LLMEngine.BASE_URLS.anthropic;
-    const base = this.baseUrl || defaultBase;
-    const url = `${base.replace(/\/$/, '')}/messages`;
-
+  async _callAnthropic() {
+    const url = this.baseUrl
+      ? `${this.baseUrl.replace(/\/$/, '')}/v1/messages`
+      : 'https://api.anthropic.com/v1/messages';
+    
+    // Get version-aware prompt additions
+    const versionAwareInfo = await this.getVersionAwarePrompt();
+    const fullSystemPrompt = versionAwareInfo ? SYSTEM_PROMPT + versionAwareInfo : SYSTEM_PROMPT;
+    
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -387,127 +162,22 @@ export class LLMEngine {
       },
       body: JSON.stringify({
         model: this.model,
-        system: this._systemPrompt(),
+        system: fullSystemPrompt,
         messages: this.messages,
         tools: TOOLS_ANTHROPIC,
-        max_tokens: 16384,  // Anthropic 必填参数，给足够大的值
-        stream: true
-      }),
-      signal
+        max_tokens: 4096
+      })
     });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
 
-    if (!res.ok) {
-      const errText = await res.text();
-      let errMsg;
-      try { errMsg = JSON.parse(errText).error?.message || errText; } catch { errMsg = errText; }
-      throw new Error(errMsg);
-    }
-
-    // Parse Anthropic SSE stream
-    const contentBlocks = []; // Array of { type, text?, id?, name?, input? }
-    let currentBlockIndex = -1;
-    let currentBlockType = '';
-    let textContent = '';
-    let inputJsonStr = '';
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('event:')) continue;
-          if (!trimmed.startsWith('data: ')) continue;
-
-          let event;
-          try {
-            event = JSON.parse(trimmed.slice(6));
-          } catch {
-            continue;
-          }
-
-          switch (event.type) {
-            case 'message_start':
-              // Message metadata, nothing to do
-              break;
-
-            case 'content_block_start':
-              currentBlockIndex = event.index;
-              currentBlockType = event.content_block?.type || '';
-              if (currentBlockType === 'text') {
-                contentBlocks[currentBlockIndex] = { type: 'text', text: '' };
-              } else if (currentBlockType === 'tool_use') {
-                contentBlocks[currentBlockIndex] = {
-                  type: 'tool_use',
-                  id: event.content_block.id,
-                  name: event.content_block.name,
-                  input: {}
-                };
-                inputJsonStr = '';
-              }
-              break;
-
-            case 'content_block_delta':
-              if (event.delta?.type === 'text_delta' && event.delta.text) {
-                textContent += event.delta.text;
-                if (contentBlocks[event.index]) {
-                  contentBlocks[event.index].text += event.delta.text;
-                }
-                emit('text_delta', { text: event.delta.text });
-              } else if (event.delta?.type === 'input_json_delta' && event.delta.partial_json) {
-                inputJsonStr += event.delta.partial_json;
-              }
-              break;
-
-            case 'content_block_stop':
-              if (currentBlockType === 'tool_use' && contentBlocks[currentBlockIndex]) {
-                try {
-                  contentBlocks[currentBlockIndex].input = JSON.parse(inputJsonStr || '{}');
-                } catch {
-                  contentBlocks[currentBlockIndex].input = {};
-                }
-                inputJsonStr = '';
-              }
-              break;
-
-            case 'message_delta':
-              // stop_reason etc
-              break;
-
-            case 'message_stop':
-              break;
-
-            case 'error':
-              throw new Error(event.error?.message || 'Anthropic stream error');
-          }
-        }
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      if (textContent && !contentBlocks.some(b => b?.type === 'tool_use')) {
-        return { content: textContent, toolCalls: null, rawContent: [{ type: 'text', text: textContent }] };
-      }
-      throw e;
-    }
-
-    const toolBlocks = contentBlocks.filter(b => b?.type === 'tool_use');
-    const rawContent = contentBlocks.filter(b => b != null);
+    const textBlocks = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    const toolBlocks = data.content.filter(b => b.type === 'tool_use');
 
     return {
-      content: textContent,
-      toolCalls: toolBlocks.length > 0
-        ? toolBlocks.map(b => ({ id: b.id, name: b.name, input: b.input }))
-        : null,
-      rawContent
+      content: textBlocks,
+      toolCalls: toolBlocks.length > 0 ? toolBlocks.map(b => ({ id: b.id, name: b.name, input: b.input })) : null,
+      rawContent: data.content
     };
   }
 
@@ -516,23 +186,24 @@ export class LLMEngine {
     if (!cli || !cli.isLoggedIn()) return { error: '未连接到 ZStack，请先配置并登录' };
 
     try {
-      const fixPath = (p) => p && !p.startsWith('v1/') ? `v1/${p}` : p;
-
       switch (name) {
+        // === Generic API ===
         case 'zstack_query':
-          return await cli.query(fixPath(args.resource_path), args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
+          return await cli.query(args.resource_path, args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
         case 'zstack_get':
-          return await cli.get(fixPath(args.resource_path), args.uuid);
+          return await cli.get(args.resource_path, args.uuid);
         case 'zstack_create':
-          return await cli.create(fixPath(args.resource_path), args.body);
+          return await cli.create(args.resource_path, args.body);
         case 'zstack_delete':
-          return await cli.remove(fixPath(args.resource_path), args.uuid, args.delete_mode || 'Permissive');
+          return await cli.remove(args.resource_path, args.uuid, args.delete_mode || 'Permissive');
         case 'zstack_action':
-          return await cli.action(fixPath(args.resource_path), args.uuid, args.body);
+          return await cli.action(args.resource_path, args.uuid, args.body);
         case 'zstack_update':
-          return await cli.update(fixPath(args.resource_path), args.uuid, args.body);
+          return await cli.update(args.resource_path, args.uuid, args.body);
         case 'zstack_zql':
           return await cli.zql(args.zql);
+
+        // === VM shortcuts ===
         case 'query_vms': return await cli.queryVmInstances(args.conditions || []);
         case 'create_vm': return await cli.createVm(args.params);
         case 'start_vm': return await cli.startVm(args.uuid);
@@ -540,16 +211,27 @@ export class LLMEngine {
         case 'reboot_vm': return await cli.rebootVm(args.uuid);
         case 'delete_vm': return await cli.deleteVm(args.uuid);
         case 'migrate_vm': return await cli.migrateVm(args.uuid, args.hostUuid);
+
+        // === Quick queries ===
         case 'query_hosts': return await cli.queryHosts(args.conditions || []);
         case 'query_images': return await cli.queryImages(args.conditions || []);
         case 'query_l3_networks': return await cli.queryL3Networks(args.conditions || []);
+        case 'query_l2_networks': return await cli.queryL2Networks(args.conditions || []);
         case 'query_instance_offerings': return await cli.queryInstanceOfferings(args.conditions || []);
         case 'query_volumes': return await cli.queryVolumes(args.conditions || []);
+        case 'query_snapshots': return await cli.queryVolumeSnapshots(args.conditions || []);
+        case 'query_primary_storage': return await cli.queryPrimaryStorage(args.conditions || []);
+        case 'query_backup_storage': return await cli.queryBackupStorage(args.conditions || []);
         case 'query_load_balancers': return await cli.queryLoadBalancers(args.conditions || []);
         case 'query_vips': return await cli.queryVips(args.conditions || []);
         case 'query_eips': return await cli.queryEips(args.conditions || []);
         case 'query_security_groups': return await cli.querySecurityGroups(args.conditions || []);
+        case 'query_port_forwarding': return await cli.queryPortForwarding(args.conditions || []);
+        case 'query_ipsec': return await cli.queryIPSec(args.conditions || []);
         case 'query_vpc_routers': return await cli.queryVpcRouters(args.conditions || []);
+        case 'query_clusters': return await cli.queryClusters(args.conditions || []);
+        case 'query_zones': return await cli.queryZones(args.conditions || []);
+
         default:
           return { error: `未知工具: ${name}` };
       }
@@ -560,90 +242,510 @@ export class LLMEngine {
 }
 
 // ========== System Prompt ==========
-const SYSTEM_PROMPT_BASE = `你是 ZStack 云平台智能运维助手，拥有完整的 ZStack API 访问能力。
+const SYSTEM_PROMPT = `你是 ZStack 云平台智能运维助手，拥有完整的 ZStack API 访问能力。
 
-## 回复风格（必须遵守）
-- 查询结果直接用表格展示，不要加多余的开场白、道歉、解释或建议
-- 不要说"让我整理一下"、"抱歉让您久等"、"如果需要我可以"之类的废话
-- 用户没问就不要主动提建议
-- 表格只展示关键字段：名称、状态、IP、CPU、内存，不要把所有字段都列出来
-- 操作成功就说"已完成"，失败就说原因，简洁明了
+## ZStack 架构概览
 
-## 核心能力
-你可以通过工具管理 ZStack 云平台的所有资源，包括但不限于：
+### 资源层次结构
+ZStack 采用分层架构，资源之间有明确的依赖关系：
 
-**计算**: 云主机(vm-instances)、镜像(images)、计算规格(instance-offerings)、云盘规格(disk-offerings)
-**存储**: 云盘(volumes)、快照(volume-snapshots)、备份(volume-backups)、主存储(primary-storage)、镜像仓库(backup-storage)、Ceph存储
-**网络**: L2网络(l2-networks)、L3网络(l3-networks)、VIP(vips)、弹性IP(eips)、端口转发(port-forwarding)、安全组(security-groups)、IPsec VPN(ipsec)
-**负载均衡**: 负载均衡器(load-balancers)、监听器(load-balancers/listeners)、服务器组(load-balancers/servergroups)
-**VPC**: VPC路由器(vpc/virtual-routers)、路由表(vrouter-route-tables)、VPC防火墙(vpcfirewalls)
-**基础设施**: 区域(zones)、集群(clusters)、物理机(hosts)、管理节点(management-nodes)
-**身份认证**: 账户(accounts)、IAM2项目(iam2/projects)、虚拟身份(iam2/virtual-ids)
-**监控告警**: 告警(zwatch/alarms)、事件订阅(zwatch/events/subscriptions)、监控组(zwatch/monitorgroups)
-**运维**: 定时任务(scheduler/jobs)、全局配置(global-configurations)、系统标签(system-tags)
-**裸金属**: 裸金属服务器(baremetal2/bm-instances)、机箱(baremetal2/chassis)
-**弹性伸缩**: 伸缩组(autoscaling/groups)、伸缩规则(autoscaling/rules)
-**CDP备份**: CDP策略(cdp-backup-storage/policy)、CDP任务(cdp-task)
-**V2V迁移**: 迁移任务(v2vs)、转换主机(v2v-conversion-hosts)
+```
+Zone（区域）
+├── Cluster（集群）
+│   └── Host（物理机）
+│       └── VM Instance（云主机）
+│           ├── VmNic（网卡）←── L3Network
+│           └── Volume（云盘）←── PrimaryStorage
+├── L2Network（L2网络/物理网络）
+│   └── L3Network（L3网络/虚拟网络）
+│       └── VmNic
+├── PrimaryStorage（主存储）
+│   ├── Volume（云盘）
+│   └── VolumeSnapshot（快照）
+└── BackupStorage（备份存储）
+    └── Image（镜像）
+```
+
+### 资源依赖关系（创建 VM 必需）
+1. **Zone（区域）** - 最顶层逻辑单元
+2. **Cluster（集群）** - 属于 Zone，关联 Host 和 PrimaryStorage
+3. **Host（物理机）** - 属于 Cluster，运行 VM
+4. **PrimaryStorage（主存储）** - 属于 Zone/Cluster，提供存储
+   - 支持类型：NFS、LocalStorage、Ceph、SharedBlock、iSCSI
+5. **L2Network（L2网络）** - 提供二层网络
+   - 类型：Flat（扁平）、VLAN、VXLAN
+6. **L3Network（L3网络）** - 属于 L2Network，提供 IP
+7. **Image（镜像）** - 存储在 BackupStorage，用于创建 VM
+8. **InstanceOffering（计算规格）** - CPU/内存配置
+9. **DiskOffering（云盘规格）** - 数据盘配置
+
+### 核心模块（源码组织）
+- **zstack/core** - 核心框架（消息总线、DB、Plugin、升级）
+- **zstack/compute** - 计算域（VM、Cluster、Host、Zone 管理）
+- **zstack/storage** - 存储域（Volume、Snapshot、Primary/Backup Storage）
+- **zstack/network** - 网络域（L2、L3、Network Service）
+- **zstack/plugin** - 插件实现（KVM、Ceph、SecurityGroup、LoadBalancer 等）
+- **premium/** - 企业版功能（VPC、DRS、AutoScaling、BareMetal、CDP 等）
+- **zstack-utility/** - 工具组件（Agent、CLI、BuildSystem）
+
+---
+
+## 完整资源清单
+
+### 计算资源
+- **vm-instances** - 云主机（虚拟机）
+- **images** - 镜像（系统盘模板）
+- **instance-offerings** - 计算规格（CPU/内存）
+- **disk-offerings** - 云盘规格
+- **vm-cdroms** - ISO 启动盘
+- **root-volume-templates** - 根云盘模板
+
+### 存储资源
+- **volumes** - 云盘（数据盘）
+- **volume-snapshots** - 云盘快照
+- **volume-backups** - 云盘备份
+- **primary-storage** - 主存储（NFS、Ceph、SharedBlock、iSCSI、LocalStorage）
+- **backup-storage** - 备份存储（SFTP、ImageStore、Ceph）
+- **snapshot-policies** - 快照策略
+- **volume-qos** - 云盘 QoS
+
+### 网络资源 - L2 网络
+- **l2-networks** - L2 网络
+  - FlatNetwork - 扁平网络
+  - VLANNetwork - VLAN 网络
+  - VXLANNetwork - VXLAN 网络
+  - LinuxBridgeNetwork - Linux Bridge 网络
+
+### 网络资源 - L3 网络
+- **l3-networks** - L3 网络
+  - L3BasicNetwork - 基础三层网络（Underlay）
+  - L3VpcNetwork - VPC 三层网络（Overlay）
+- **dhcp-options** - DHCP 配置
+- **dns** - DNS 服务
+- **ip-ranges** - IP 地址范围
+
+### 网络服务（Network Services）
+- **DHCP** - 动态主机配置协议
+- **DNS** - 域名服务
+- **SNAT** - 源地址转换
+- **PortForwarding** - 端口转发
+- **EIP** - 弹性 IP
+- **SecurityGroup** - 安全组
+- **LoadBalancer** - 负载均衡器
+
+### 负载均衡（LB）
+- **load-balancers** - 负载均衡器实例
+- **load-balancers/listeners** - 监听器（端口映射）
+- **load-balancers/servergroups** - 服务器组（后端服务器池）
+- **load-balancers/certificates** - SSL 证书
+- **load-balancers/access-control-lists** - 访问控制列表
+
+### VPC（虚拟私有云）- 企业版
+- **vpc/virtual-routers** - VPC 路由器
+- **vrouter-route-tables** - 路由表
+- **vpcfirewalls** - VPC 防火墙
+- **vpc-ha-groups** - VPC 高可用组
+- **vpc-acl** - VPC 访问控制列表
+
+### VPN
+- **ipsec-connections** - IPsec VPN 连接
+- **vpn-connections** - VPN 连接
+- **vpn-gateways** - VPN 网关
+
+### 身份认证与权限（IAM）
+- **accounts** - 账户（租户）
+- **users** - 用户
+- **user-groups** - 用户组
+- **policies** - 权限策略
+- **iam2/projects** - IAM2 项目
+- **iam2/virtual-ids** - IAM2 虚拟身份
+- **iam2/organizations** - IAM2 组织
+- **iam2/virtual-id-groups** - IAM2 虚拟身份组
+- **iam2/attributes** - IAM2 属性
+
+### 监控与告警
+- **zwatch/alarms** - 告警规则
+- **zwatch/events** - 事件
+- **zwatch/events/subscriptions** - 事件订阅
+- **zwatch/monitorgroups** - 监控组
+- **monitor/triggers** - 监控触发器
+- **monitor/trigger-actions** - 触发器动作（邮件、短信、Webhook）
+- **sns/topics** - SNS 主题
+- **sns/application-endpoints** - 应用端点
+
+### 基础设施
+- **zones** - 区域
+- **clusters** - 集群
+- **hosts** - 物理机
+- **management-nodes** - 管理节点
+- **亲和组 (affinity-groups)** - 亲和性策略
+
+### 运维管理
+- **scheduler/jobs** - 定时任务
+- **scheduler/triggers** - 定时触发器
+- **global-configurations** - 全局配置
+- **system-tags** - 系统标签
+- **user-tags** - 用户标签
+- **login-control** - 登录控制
+- **license** - 许可信息
+
+### 备份与容灾
+- **backup/database** - 数据库备份
+- **backup-volume** - 卷备份
+- **cdp-backup-storage/policy** - CDP 策略（企业版）
+- **cdp-task** - CDP 任务（企业版）
+
+### 弹性伸缩（Auto Scaling）- 企业版
+- **autoscaling/groups** - 伸缩组
+- **autoscaling/rules** - 伸缩规则
+- **autoscaling/group-instances** - 伸缩实例
+
+### 裸金属（Bare Metal）- 企业版
+- **baremetal2/bm-instances** - 裸金属服务器
+- **baremetal2/chassis** - 裸金属机箱
+- **baremetal2/provision-networks** - 裸金属配置网络
+- **baremetal2/pxe-servers** - PXE 服务器
+
+### V2V 迁移
+- **v2vs** - 迁移任务
+- **v2v-conversion-hosts** - 转换主机
+
+### 混合云 - 企业版
+- **aliyun/ecs-instances** - 阿里云 ECS
+- **aliyun/vpcs** - 阿里云 VPC
+- **aliyun/ebs-backup-storage** - 阿里云 EBS 备份存储
+- **hybrid/eip-addresses** - 混合云 EIP
+- **hybrid/identity-zone** - 混合云身份区域
+- **hybrid/datacenter** - 数据中心
+
+### 计费（Billing）- 企业版
+- **billing/price** - 价格配置
+- **billing/coupon** - 优惠券
+
+---
+
+## 版本查询 API
+
+连接 ZStack 后，系统会自动获取版本信息：
+- **获取版本**: PUT /zstack/v1/management-nodes/actions body: {"getVersion": {}}
+  - 返回: {"version": "4.8.30"}
+- **获取许可**: PUT /zstack/v1/management-nodes/actions body: {"getLicense": {}}
+  - 返回: {"licensed": true, "expirationDate": "2025-12-31"}
+
+**版本特性参考**:
+- 5.3+: 基础云平台功能
+- 5.4+: KVM裸金属、DRS动态资源调度、CDP连续数据保护
+- 5.5+: IAM2身份管理、VPC高可用、混合云增强
+
+---
+
+## 创建资源格式
+
+### 创建云主机
+\`\`\`
+{
+  "params": {
+    "name": "vm-name",
+    "instanceOfferingUuid": "规格UUID",
+    "imageUuid": "镜像UUID",
+    "l3NetworkUuids": ["网络UUID"],
+    "clusterUuid": "集群UUID（可选）",
+    "hostUuid": "指定宿主机UUID（可选）"
+  }
+}
+\`\`\`
+
+### 创建负载均衡器
+\`\`\`
+{
+  "params": {
+    "name": "lb-name",
+    "vipUuid": "VIP UUID"
+  }
+}
+\`\`\`
+
+### 创建监听器
+路径: load-balancers/{lbUuid}/listeners
+\`\`\`
+{
+  "params": {
+    "name": "listener-name",
+    "loadBalancerPort": 80,
+    "instancePort": 8080,
+    "protocol": "http"
+  }
+}
+\`\`\`
+
+### 创建 VPC 路由器（企业版）
+\`\`\`
+{
+  "params": {
+    "name": "vpc-name",
+    "l3NetworkUuid": "L3网络UUID"
+  }
+}
+\`\`\`
+
+---
+
+## Action 操作格式
+
+- 启动云主机: {"startVmInstance": {}}
+- 停止云主机: {"stopVmInstance": {"type": "grace"}}
+- 迁移云主机: {"migrateVm": {"hostUuid": "目标宿主机UUID"}}
+- 创建快照: {"createVolumeSnapshot": {"name": "snapshot-name"}}
+- 挂载云盘: {"attachDataVolume": {"volumeUuid": "云盘UUID"}}
+
+## 网络服务详解
+
+### 负载均衡 (Load Balancer)
+- **负载均衡器 (load-balancers)**: 基于 VIP 创建，将流量分发到后端服务器
+- **监听器 (load-balancers/listeners)**: 监听端口和协议配置，支持 TCP/HTTP/HTTPS
+- **服务器组 (load-balancers/servergroups)**: 后端服务器组，关联 VM 网卡
+- **常用操作**: addBackendServer(添加后端)、removeBackendServer(移除后端)、refreshLoadBalancer(刷新)
+
+### 端口转发 (Port Forwarding)
+- **资源路径**: port-forwarding
+- **作用**: 将外网流量转发到内部 VM 的指定端口
+- **创建参数**: vipUuid, vmNicUuid, protocol, privatePort, publicPort
+
+### 弹性 IP (EIP)
+- **资源路径**: eips
+- **作用**: 为 VM 提供公网访问能力
+- **创建参数**: vipUuid(从已有VIP分配) 或 name + guestIp + l3NetworkUuid(新建)
+
+### 安全组 (Security Group)
+- **资源路径**: security-groups
+- **规则**: ingress-rule(入站)、egress-rule(出站)
+- **常用操作**: addSecurityGroupRule, deleteSecurityGroupRule
+- **关联**: 通过 vm-nic-security-group-ref 关联到 VM 网卡
+
+### IPsec VPN
+- **资源路径**: ipsec-connections
+- **组件**: ipsec-peer-cidr(对端网段)
+- **常用操作**: connect, disconnect
+
+### DHCP 服务
+- **资源路径**: dhcp-options
+- **作用**: 为 L3 网络配置 DNS、网关等 DHCP 选项
+
+## 网络资源详解
+
+### L2Network 类型
+- **FlatNetwork (扁平网络)**: 无 VLAN 标签，物理网络直通
+- **VlanNetwork (VLAN网络)**: 802.1Q VLAN 隔离，需要 vlanId 参数
+- **VxlanNetwork (VXLAN网络)**:overlay 隔离，支持大规模租户
+- **VxlanNetworkPool (VXLAN池)**: 集中管理 VXLAN ID 资源
+
+### L3Network 类型
+- **L3BasicNetwork**: 基础三层网络，支持 SNAT、DHCP
+- **L3VpcNetwork**: VPC 专用网络，与 VPC 路由器关联
+
+### 网络服务 (Network Services)
+- **DNS**: 提供域名解析，关联 L3Network
+- **SNAT**: 源地址转换，让 VM 访问外网
+- **PortForwarding**: 端口转发服务
+- **LoadBalancing**: 负载均衡服务
+- **IPsec**: VPN 隧道服务
+- 查询网络服务: network-service-l3network-ref
+
+### VIP (虚拟 IP)
+- **资源路径**: vips
+- **作用**: 作为负载均衡器、EIP 的外网入口
+- **关联服务**: 通过 vip-network-services-ref 关联网络服务
+
+## 存储资源详解
+
+### 主存储类型 (Primary Storage)
+- **NFS**: 网络文件系统，简单易用
+- **Ceph**: 分布式存储，支持块存储、对象存储
+- **SharedBlock**: 共享块存储，支持 iSCSI
+- **iSCSI**: 传统 SAN 存储
+- **LocalStorage**: 本地存储，无网络开销
+
+### 备份存储 (Backup Storage)
+- **资源路径**: backup-storage
+- **类型**: ImageStore、S3、Ceph、阿里云 OSS
+
+### 快照策略 (Snapshot Policy)
+- **资源路径**: snapshot-policies
+- **参数**: schedule, time, repeat, retention
+
+### CDP 连续数据保护 (企业版)
+- **资源路径**: cdp-backup-storage/policy, cdp-task
+- **功能**: 实时数据保护，支持任意时间点恢复
+- **操作**: createCdpPolicy, startCdpTask, restoreCdpTask
+
+## 平台监控详解
+
+### 告警 (Alarms)
+- **资源路径**: zwatch/alarms
+- **触发条件**: 基于监控指标阈值
+- **状态**: Active, Archived, Cleared
+
+### 事件 (Events)
+- **资源路径**: zwatch/events
+- **订阅**: zwatch/events/subscriptions
+- **作用**: 实时推送资源状态变更
+
+### 监控组 (Monitor Groups)
+- **资源路径**: zwatch/monitorgroups
+- **作用**: 对 VM 按组批量监控
+- **关联**: monitor-group-instances
+
+### 监控模板 (Monitor Templates)
+- **资源路径**: monitor-templates
+- **作用**: 定义告警规则模板
+
+### 告警动作 (Trigger Actions)
+- **资源路径**: zwatch/trigger-actions
+- **类型**: 通知、webhook、自动修复
+
+## 租户管理详解
+
+### 账户 (Account)
+- **资源路径**: accounts
+- **属性**: name, password, type(User/Admin)
+- **操作**: login, logout, changePassword
+
+### 用户 (User)
+- **资源路径**: users
+- **从属**: 属于 Account
+- **操作**: createUser, updateUser, deleteUser
+
+### 用户组 (Group)
+- **资源路径**: groups
+- **作用**: 批量管理用户权限
+
+### 权限策略 (Policy)
+- **资源路径**: policies
+- **格式**: JSON 格式的权限表达式
+- **语法**: 
+```json
+{
+  "resource": "vm-instances",
+  "action": "APIQueryVmInstanceMsg",
+  "effect": "allow"
+}
+```
+
+### IAM2 项目 (企业版)
+- **资源路径**: iam2/projects
+- **作用**: 多租户资源隔离
+- **特性**: 独立配额、资源视图
+
+### IAM2 虚拟 ID (企业版)
+- **资源路径**: iam2/virtual-ids
+- **作用**: 跨云统一身份管理
+- **组**: iam2/virtual-id-groups
+
+## 企业版功能详解
+
+### VPC 路由器
+- **资源路径**: vpc/virtual-routers
+- **作用**: VPC 内三层转发
+- **网络**: 关联 L3VpcNetwork
+
+### VPC 高可用 (VPC HA)
+- **资源路径**: vpc-ha-groups
+- **功能**: 主备切换保证 VPC 网络高可用
+- **组件**: vpc-ha-group-vip-ref(浮动IP)
+
+### DRS 动态资源调度 (企业版)
+- **资源路径**: cluster-drs
+- **功能**: 自动迁移 VM 平衡负载
+- **策略**: 调度规则 host-scheduling-rules
+
+### 裸金属管理 (企业版)
+- **资源路径**: baremetal2/bm-instances
+- **组件**: baremetal2/chassis(物理服务器)
+- **操作**: provision(配置)、deploy(部署)
+
+### 混合云 (企业版)
+- **阿里云**: aliyun/proxy-vpcs, aliyun/ebs-backup-storage
+- **AWS**: (通过 VPC 对等连接)
+- **资源**: hybrid/eip-addresses(混合云EIP)
 
 ## 通用 API 工具
 对于上面列出的所有资源以及未列出的资源，你都可以使用通用 API 工具(zstack_query/zstack_create/zstack_delete/zstack_action/zstack_update)来操作。
-resource_path 为资源路径，例如 "vm-instances"、"load-balancers/listeners"、"hosts"。系统会自动补全 v1/ 前缀。
+resource_path 就是 API 路径去掉 "v1/" 前缀后的部分，例如 "vm-instances"、"load-balancers/listeners"。
 
 ## ZQL 查询
 ZStack 支持 ZQL (ZStack Query Language)，语法类似 SQL：
 - query vminstance where name='test'
 - query vminstance where clusterUuid='xxx' and state='Running'
 - query host where status='Connected' return with (vminstance)
-- count vminstance  → 返回资源总数（不受分页限制）
-- count vminstance where state='Running'  → 按条件统计数量
 对于复杂查询，优先使用 ZQL。
 
-⚠️ **ZQL 语法关键规则**：
-1. 所有字符串值必须用单引号包裹！
-   - ✅ 正确: count vminstance where state='Running'
-   - ❌ 错误: count vminstance where state=Running （会报错！）
-2. 分页用 **offset** 不是 start！
-   - ✅ 正确: query vminstance limit 100 offset 100
-   - ❌ 错误: query vminstance limit 100 start 100 （会报错！）
-3. ZQL 实体名与 API 路径不同，常用映射：
-   vminstance, host, image, l3network, l2network, volume, volumesnapshot,
-   instanceoffering, diskoffering, primarystorage, backupstorage,
-   zone, cluster, vip, eip, securitygroup, loadbalancer,
-   appliancevm(VPC路由器), account, managementnode, vmnic, globalconfig
-
-## ⚠️ 分页警告（极其重要）
-ZStack API 默认每次最多返回100条记录（分页）。这意味着：
-- zstack_query 返回的数组长度最多100，**绝对不能**用数组长度当作资源总数！
-- 如果你看到返回了100条记录，真实总数很可能远大于100
-- **获取准确总数的唯一方法**：使用 ZQL count，例如 "count vminstance"
-- 查询资源时，**必须先用 ZQL count 获取真实总数**，再决定如何展示
-
 ## 常用 API 路径参考
-vm-instances, images, instance-offerings, disk-offerings, volumes, volume-snapshots, volume-backups,
-hosts, clusters, zones, l2-networks, l3-networks, vips, eips, port-forwarding, security-groups,
+### 计算与存储
+vm-instances, images, instance-offerings, disk-offerings, volumes, volume-snapshots, volume-backups, snapshot-policies
+
+### 网络与负载均衡
+l2-networks, l3-networks, vips, eips, port-forwarding, security-groups, security-group-rules,
 load-balancers, load-balancers/listeners, load-balancers/servergroups,
-vpc/virtual-routers, vrouter-route-tables, vpcfirewalls, ipsec,
-primary-storage, backup-storage, primary-storage/ceph, backup-storage/ceph,
-accounts, iam2/projects, iam2/virtual-ids,
-zwatch/alarms, zwatch/events/subscriptions, zwatch/monitorgroups,
-scheduler/jobs, scheduler/triggers, global-configurations, system-tags, management-nodes,
-nics, vm-instances/cdroms, affinity-groups, ssh-key-pair,
-autoscaling/groups, baremetal2/bm-instances, cdp-task, v2vs,
-certificates, ldap/servers, licenses
+ipsec-connections, ipsec-peer-cidr, dhcp-options, network-service-l3network-ref
+
+### VPC
+vpc/virtual-routers, vrouter-route-tables, vpcfirewalls, vpc-firewall-rules, vpc-ha-groups
+
+### 基础设施
+hosts, clusters, zones, primary-storage, backup-storage, primary-storage/ceph, backup-storage/ceph,
+management-nodes, nics, vm-instances/cdroms, affinity-groups, ssh-key-pair
+
+### 身份认证
+accounts, users, groups, policies, iam2/projects, iam2/virtual-ids, iam2/virtual-id-groups, iam2/organizations
+
+### 监控告警
+zwatch/alarms, zwatch/events, zwatch/events/subscriptions, zwatch/monitorgroups, zwatch/monitor-group-instances,
+monitor-templates, zwatch/trigger-actions
+
+### 运维与调度
+scheduler/jobs, scheduler/triggers, global-configurations, system-tags, certificates, ldap/servers, licenses
+
+### 企业版功能
+autoscaling/groups, autoscaling/rules, autoscaling/group-instances,
+baremetal2/bm-instances, baremetal2/chassis, baremetal2/provision-networks,
+cdp-backup-storage/policy, cdp-task, cluster-drs, host-scheduling-rules,
+v2vs, v2v-conversion-hosts,
+aliyun/proxy-vpcs, aliyun/ebs-backup-storage, hybrid/eip-addresses
 
 ## 创建资源的 body 格式
 创建资源时 body 通常为 { "params": { ...fields } }，具体字段参考 ZStack API 文档。
 常见创建示例：
+
+### 计算资源
 - 创建云主机: { "params": { "name": "xxx", "instanceOfferingUuid": "xxx", "imageUuid": "xxx", "l3NetworkUuids": ["xxx"] } }
+
+### 网络资源
+- 创建L3网络: { "params": { "name": "xxx", "l2NetworkUuid": "xxx", "category": "Public" } }
 - 创建VIP: { "params": { "name": "xxx", "l3NetworkUuid": "xxx" } }
+- 创建EIP: { "params": { "name": "xxx", "vipUuid": "xxx", "vmNicUuid": "xxx" } }
+- 创建端口转发: { "params": { "name": "xxx", "vipUuid": "xxx", "vmNicUuid": "xxx", "protocol": "tcp", "privatePort": 22, "publicPort": 2222 } }
+- 创建安全组: { "params": { "name": "xxx" } }
+- 添加安全组规则: { "params": { "securityGroupUuid": "xxx", "rule": { "type": "Ingress", "protocol": "TCP", "startPort": 80, "endPort": 80, "cidr": "0.0.0.0/0" } } }
+- 创建IPsec VPN: { "params": { "name": "xxx", "l3NetworkUuid": "xxx", "peerAddress": "xxx", "psk": "xxx" } }
+
+### 负载均衡
 - 创建负载均衡器: { "params": { "name": "xxx", "vipUuid": "xxx" } }
 - 创建监听器: { "params": { "name": "xxx", "loadBalancerPort": 80, "instancePort": 80, "protocol": "tcp" } }
   路径: load-balancers/{lbUuid}/listeners
 - 创建服务器组: { "params": { "name": "xxx" } }
   路径: load-balancers/{lbUuid}/servergroups
-- 创建EIP: { "params": { "name": "xxx", "vipUuid": "xxx", "vmNicUuid": "xxx" } }
-- 创建安全组: { "params": { "name": "xxx" } }
+- 添加后端服务器: { "params": { "serverGroupUuid": "xxx", "vmNicUuids": ["xxx"] } }
+
+### 存储资源
+- 创建快照策略: { "params": { "name": "xxx", "schedule": "0 2 * * *", "retention": 7 } }
+
+### 监控告警
+- 创建监控组: { "params": { "name": "xxx" } }
+- 创建告警: { "params": { "name": "xxx", "targetUuid": "xxx", "metric": "CPU", "threshold": 80 } }
+
+### 身份认证
+- 创建账户: { "params": { "name": "xxx", "password": "xxx" } }
+- 创建IAM2项目: { "params": { "name": "xxx", "description": "xxx" } }
 
 ## Action 操作的 body 格式
 Action 操作 body 格式为 { "actionName": { ...params } }，例如：
@@ -662,33 +764,13 @@ Action 操作 body 格式为 { "actionName": { ...params } }，例如：
 
 ## 回复规范
 - 用中文回复
+- 操作前确认关键信息
+- 查询结果用表格或列表展示关键字段
 - 危险操作（删除、停机）需要明确提醒`;
-
-const QUERY_MODE_COMPACT = `
-## 当前查询模式：⚡ 精简模式
-**查询资源的标准流程（必须严格遵守）：**
-1. 第一步：用 ZQL count 获取真实总数，如 "count vminstance"，按状态分别统计 "count vminstance where state='Running'" 等
-2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
-3. 第三步：用 zstack_query（limit=20）展示前20条记录的表格
-4. 第四步：告知用户"以上为前20条，共 X 条，需要查看更多吗？"
-⚠️ 绝对禁止用 API 返回的数组长度当总数！API 默认只返回100条！`;
-
-const QUERY_MODE_FULL = `
-## 当前查询模式：📋 全量模式
-**查询资源的标准流程（必须严格遵守）：**
-1. 第一步：用 ZQL count 获取真实总数，如 "count vminstance"，按状态分别统计
-2. 第二步：用概览告知用户（如：总数 705 台，运行中 500，已停止 180，其它 25）
-3. 第三步：分批查询并展示全部数据：
-   - 每批用 zstack_query（limit=100, start=0/100/200/...）翻页获取
-   - 或用 ZQL 翻页：query vminstance limit 100 offset 0, query vminstance limit 100 offset 100, ...
-   - 每批数据立即用表格展示，表格包含：序号、名称、状态、IP、关键属性
-   - 持续翻页直到获取全部数据，不要中途停下来问用户
-4. 如果总数超过 500 条，先展示前 500 条，然后告知用户剩余数量并询问是否继续
-⚠️ 绝对禁止用 API 返回的数组长度当总数！API 默认只返回100条！
-⚠️ 全量模式的核心目标是展示尽可能多的数据，不要缩减列数或行数`;
 
 // ========== Tool Definitions (OpenAI format) ==========
 const TOOLS = [
+  // --- Generic API Tools ---
   {
     type: 'function',
     function: {
@@ -790,7 +872,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'zstack_zql',
-      description: 'ZQL查询：使用 ZStack Query Language 执行复杂查询。支持 query（查数据）和 count（统计数量）。示例："query vminstance where state=Running"、"count vminstance"、"count vminstance where state=Stopped"。⚠️ 查询资源前必须先用 count 获取真实总数，不要用 API 返回数组长度当总数！',
+      description: 'ZQL查询：使用 ZStack Query Language 执行复杂查询，语法类似SQL。如 "query vminstance where state=Running"',
       parameters: {
         type: 'object',
         properties: {
@@ -800,6 +882,7 @@ const TOOLS = [
       }
     }
   },
+  // --- VM Shortcuts ---
   {
     type: 'function',
     function: {
@@ -868,6 +951,7 @@ const TOOLS = [
       parameters: { type: 'object', properties: { uuid: { type: 'string' }, hostUuid: { type: 'string' } }, required: ['uuid', 'hostUuid'] }
     }
   },
+  // --- Quick Queries ---
   {
     type: 'function',
     function: {

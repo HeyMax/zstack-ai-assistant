@@ -4,41 +4,6 @@ import { LLMEngine } from './lib/llm.js';
 const zstack = new ZStackClient();
 const llm = new LLMEngine();
 
-// Markdown renderer
-const md = typeof marked !== 'undefined' ? marked : null;
-if (md) md.setOptions({ breaks: true, gfm: true });
-
-function renderMarkdown(text) {
-  if (!text) return '';
-  if (md) {
-    const raw = md.parse(text);
-    return typeof DOMPurify !== 'undefined'
-      ? DOMPurify.sanitize(raw, { ADD_TAGS: ['table','thead','tbody','tr','th','td'] })
-      : raw;
-  }
-  return escapeHtml(text);
-}
-
-function addCodeCopyButtons(container) {
-  container.querySelectorAll('pre').forEach(pre => {
-    if (pre.parentElement?.classList.contains('code-block-wrapper')) return;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'code-block-wrapper';
-    pre.parentNode.insertBefore(wrapper, pre);
-    wrapper.appendChild(pre);
-    const btn = document.createElement('button');
-    btn.className = 'code-copy-btn';
-    btn.textContent = '📋';
-    btn.addEventListener('click', () => {
-      navigator.clipboard.writeText(pre.textContent).then(() => {
-        btn.textContent = '✅';
-        setTimeout(() => btn.textContent = '📋', 1500);
-      });
-    });
-    wrapper.insertBefore(btn, pre);
-  });
-}
-
 // DOM elements
 const chatArea = document.getElementById('chat-area');
 const input = document.getElementById('input');
@@ -50,63 +15,41 @@ const btnSaveLLM = document.getElementById('btn-save-llm');
 const settingsPanel = document.getElementById('settings-panel');
 const statusBar = document.getElementById('status-bar');
 const statusText = document.getElementById('status-text');
-const statusModel = document.getElementById('status-model');
-const btnScrollBottom = document.getElementById('btn-scroll-bottom');
-const btnStop = document.getElementById('btn-stop');
 
 let isProcessing = false;
-let queryMode = 'compact';
-let chatHistory = [];
-let lastFailedMsg = null;
-let responseStartTime = 0;
 
 // --- Init ---
 async function init() {
-  try {
-    await loadSettings();
-    setupEventListeners();
-    await loadChatHistory();
-    chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
-      if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
-        document.getElementById('zstack-endpoint').value = res.endpoint;
-      }
-    });
-  } catch (e) {
-    console.error('Init error:', e);
-  }
+  await loadSettings();
+  setupEventListeners();
+  // Try auto-detect ZStack endpoint
+  chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
+    if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
+      document.getElementById('zstack-endpoint').value = res.endpoint;
+    }
+  });
 }
 
 async function loadSettings() {
   const data = await chrome.storage.local.get([
     'zstackEndpoint', 'zstackAccount', 'zstackPassword',
     'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
-    'initialized', 'queryMode'
+    'initialized'
   ]);
 
+  // First run: pre-fill with defaults from OpenClaw config
   if (!data.initialized) {
     await chrome.storage.local.set({
       initialized: true,
-      llmProvider: 'openai',
-      llmBaseUrl: '',
-      llmApiKey: '',
-      llmModel: '',
-      queryMode: 'compact'
+      llmProvider: 'anthropic',
+      llmBaseUrl: 'https://cdr.digiman.live/claude-kiro-oauth',
+      llmApiKey: '123456',
+      llmModel: 'claude-opus-4-6'
     });
-    data.llmProvider = 'openai';
-    data.llmBaseUrl = '';
-    data.llmApiKey = '';
-    data.llmModel = '';
-    // First time: show settings panel to guide user
-    settingsPanel.classList.remove('hidden');
-    // Switch to LLM tab
-    setTimeout(() => {
-      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
-      const llmTab = document.querySelector('.settings-tab[data-tab="llm"]');
-      if (llmTab) llmTab.classList.add('active');
-      const llmContent = document.getElementById('tab-llm');
-      if (llmContent) llmContent.classList.remove('hidden');
-    }, 100);
+    data.llmProvider = 'anthropic';
+    data.llmBaseUrl = 'https://cdr.digiman.live/claude-kiro-oauth';
+    data.llmApiKey = '123456';
+    data.llmModel = 'claude-opus-4-6';
   }
 
   if (data.zstackEndpoint) document.getElementById('zstack-endpoint').value = data.zstackEndpoint;
@@ -117,83 +60,44 @@ async function loadSettings() {
   if (data.llmApiKey) document.getElementById('llm-apikey').value = data.llmApiKey;
   if (data.llmModel) document.getElementById('llm-model').value = data.llmModel;
 
-  queryMode = data.queryMode || 'compact';
-  updateModeButton();
+  // Update LLM model placeholder based on provider
   updateModelPlaceholder();
 
+  // Auto-connect if we have credentials
   if (data.zstackEndpoint && data.zstackPassword) {
-    try { await connectZStack(); } catch (e) { console.error('Auto-connect failed:', e); }
+    await connectZStack();
   }
-  if (data.llmApiKey) configureLLM();
-
-  // Show setup guide if not configured
-  checkSetupGuide();
-}
-
-function checkSetupGuide() {
-  const apiKey = document.getElementById('llm-apikey').value.trim();
-  const endpoint = document.getElementById('zstack-endpoint').value.trim();
-  const guideEl = document.getElementById('setup-guide');
-  if (guideEl) {
-    if (!apiKey || !endpoint) {
-      guideEl.classList.remove('hidden');
-    } else {
-      guideEl.classList.add('hidden');
-    }
+  if (data.llmApiKey) {
+    configureLLM();
   }
 }
 
 function setupEventListeners() {
-  btnSettings.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
-  btnClear.addEventListener('click', clearChat);
+  btnSettings.addEventListener('click', () => {
+    settingsPanel.classList.toggle('hidden');
+  });
+
+  btnClear.addEventListener('click', () => {
+    llm.clearHistory();
+    chatArea.innerHTML = `
+      <div class="welcome-msg">
+        <div class="welcome-icon">⚡</div>
+        <p>ZStack AI 运维助手</p>
+        <p class="welcome-sub">配置连接后，用自然语言管理你的云平台</p>
+        <div class="quick-actions">
+          <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
+          <button class="quick-btn" data-msg="帮我创建一台云主机">➕ 创建云主机</button>
+          <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
+          <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
+        </div>
+      </div>`;
+    bindQuickButtons();
+  });
+
   btnConnect.addEventListener('click', connectZStack);
   btnSaveLLM.addEventListener('click', saveLLMSettings);
-  document.getElementById('btn-export').addEventListener('click', exportConversation);
-
-  // Stop button
-  if (btnStop) {
-    btnStop.addEventListener('click', () => {
-      llm.abort();
-      setStopButtonVisible(false);
-    });
-  }
-
-  // Settings tabs
-  document.querySelectorAll('.settings-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
-      tab.classList.add('active');
-      document.getElementById(`tab-${tab.dataset.tab}`).classList.remove('hidden');
-    });
-  });
-
-  // Mode toggle
-  const btnMode = document.getElementById('btn-mode');
-  const modeTooltip = document.getElementById('mode-tooltip');
-  btnMode.addEventListener('click', async () => {
-    queryMode = queryMode === 'compact' ? 'full' : 'compact';
-    await chrome.storage.local.set({ queryMode });
-    updateModeButton();
-    configureLLM();
-  });
-  btnMode.addEventListener('mouseenter', () => modeTooltip.classList.remove('hidden'));
-  btnMode.addEventListener('mouseleave', () => modeTooltip.classList.add('hidden'));
 
   document.getElementById('llm-provider').addEventListener('change', updateModelPlaceholder);
-
-  document.getElementById('llm-model-select').addEventListener('change', () => {
-    const sel = document.getElementById('llm-model-select');
-    const inp = document.getElementById('llm-model');
-    if (sel.value === '__custom__') {
-      inp.style.display = '';
-      inp.value = '';
-      inp.focus();
-    } else {
-      inp.style.display = 'none';
-      inp.value = sel.value;
-    }
-  });
 
   input.addEventListener('input', () => {
     input.style.height = 'auto';
@@ -209,81 +113,7 @@ function setupEventListeners() {
   });
 
   btnSend.addEventListener('click', sendMessage);
-
-  // Scroll to bottom button
-  chatArea.addEventListener('scroll', () => {
-    const atBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 80;
-    btnScrollBottom.classList.toggle('hidden', atBottom);
-  });
-  btnScrollBottom.addEventListener('click', scrollToBottom);
-
   bindQuickButtons();
-}
-
-function clearChat() {
-  llm.clearHistory();
-  chatHistory = [];
-  chrome.storage.local.remove('chatHistory');
-  chatArea.innerHTML = buildWelcomeHTML();
-  bindQuickButtons();
-  checkSetupGuide();
-}
-
-function buildWelcomeHTML() {
-  const apiKey = document.getElementById('llm-apikey')?.value?.trim();
-  const endpoint = document.getElementById('zstack-endpoint')?.value?.trim();
-  const needsSetup = !apiKey || !endpoint;
-
-  let guideHTML = '';
-  if (needsSetup) {
-    guideHTML = `
-      <div id="setup-guide" class="setup-guide">
-        <div class="setup-guide-icon">🔧</div>
-        <div class="setup-guide-text">
-          <p>首次使用，请先完成配置：</p>
-          <ol>
-            ${!endpoint ? '<li>配置 ZStack API 连接地址</li>' : ''}
-            ${!apiKey ? '<li>配置 AI 模型 API Key</li>' : ''}
-          </ol>
-          <p>点击右上角 ⚙️ 打开设置</p>
-        </div>
-      </div>`;
-  } else {
-    guideHTML = '<div id="setup-guide" class="setup-guide hidden"></div>';
-  }
-
-  return `
-    <div class="welcome-msg">
-      <div class="welcome-icon">⚡</div>
-      <h2>ZStack AI 运维助手</h2>
-      <p class="welcome-sub">用自然语言管理你的云平台</p>
-      ${guideHTML}
-      <div class="welcome-features">
-        <div class="feature-item">📊 查询资源状态</div>
-        <div class="feature-item">🚀 创建和管理云主机</div>
-        <div class="feature-item">🔍 ZQL 智能查询</div>
-        <div class="feature-item">📋 全量数据导出</div>
-      </div>
-      <div class="quick-actions">
-        <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
-        <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
-        <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
-        <button class="quick-btn" data-msg="查看网络列表">🌐 网络列表</button>
-        <button class="quick-btn" data-msg="查看存储状态">💾 存储状态</button>
-        <button class="quick-btn" data-msg="查看负载均衡">⚖️ 负载均衡</button>
-      </div>
-    </div>`;
-}
-
-function updateModeButton() {
-  const btn = document.getElementById('btn-mode');
-  if (queryMode === 'full') {
-    btn.textContent = '📋 全量';
-    btn.classList.add('full-mode');
-  } else {
-    btn.textContent = '⚡ 精简';
-    btn.classList.remove('full-mode');
-  }
 }
 
 function bindQuickButtons() {
@@ -295,57 +125,16 @@ function bindQuickButtons() {
   });
 }
 
-// Provider presets
-const PROVIDER_MODELS = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o3-mini'],
-  anthropic: ['claude-opus-4-6', 'claude-sonnet-4', 'claude-haiku-3.5'],
-  glm: ['GLM-5', 'glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-4-long'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
-  minimax: ['MiniMax-M2.5', 'M2.5-highspeed', 'MiniMax-M2.1', 'M2.1-highspeed', 'MiniMax-M1', 'MiniMax-Text-01']
-};
-
-const PROVIDER_DEFAULTS = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-sonnet-4',
-  glm: 'glm-4-flash',
-  deepseek: 'deepseek-chat',
-  qwen: 'qwen-plus',
-  minimax: 'MiniMax-M2.5'
-};
-
 function updateModelPlaceholder() {
   const provider = document.getElementById('llm-provider').value;
-  const modelSelect = document.getElementById('llm-model-select');
   const modelInput = document.getElementById('llm-model');
-  const models = PROVIDER_MODELS[provider] || [];
-
-  modelSelect.innerHTML = '';
-  models.forEach(m => {
-    const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m;
-    modelSelect.appendChild(opt);
-  });
-  const customOpt = document.createElement('option');
-  customOpt.value = '__custom__';
-  customOpt.textContent = '自定义...';
-  modelSelect.appendChild(customOpt);
-
-  const currentVal = modelInput.value.trim();
-  if (currentVal && models.includes(currentVal)) {
-    modelSelect.value = currentVal;
-    modelInput.style.display = 'none';
-  } else if (currentVal) {
-    modelSelect.value = '__custom__';
-    modelInput.style.display = '';
+  if (provider === 'anthropic') {
+    modelInput.placeholder = 'claude-opus-4-6';
+    if (!modelInput.value) modelInput.value = '';
   } else {
-    modelSelect.value = models[0] || '__custom__';
-    modelInput.value = '';
-    modelInput.style.display = modelSelect.value === '__custom__' ? '' : 'none';
+    modelInput.placeholder = 'gpt-4o-mini';
+    if (!modelInput.value) modelInput.value = '';
   }
-
-  modelInput.placeholder = PROVIDER_DEFAULTS[provider] || '输入模型名';
 }
 
 // --- ZStack Connection ---
@@ -364,11 +153,29 @@ async function connectZStack() {
   try {
     zstack.configure(endpoint);
     await zstack.login(account, password);
-    await chrome.storage.local.set({ zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
-    setStatus('connected', `已连接 ${endpoint}`);
+
+    // Save settings
+    await chrome.storage.local.set({
+      zstackEndpoint: endpoint,
+      zstackAccount: account,
+      zstackPassword: password
+    });
+
+    // Display version info
+    const ver = zstack.version;
+    const isEnt = zstack.isEnterprise;
+    console.log('Version:', ver, 'Enterprise:', isEnt);
+    let verText = '';
+    if (ver) {
+      verText = ver.full ? `v${ver.full}` : `v${ver.major}.${ver.minor}.${ver.update}`;
+    }
+    if (isEnt) {
+      verText += ' 企业版';
+    }
+    document.getElementById('version-info').textContent = verText;
+
+    setStatus('connected', '已连接');
     configureLLM();
-    settingsPanel.classList.add('hidden');
-    checkSetupGuide();
   } catch (e) {
     setStatus('disconnected', '连接失败');
     showError(`连接失败: ${e.message}`);
@@ -379,33 +186,34 @@ function configureLLM() {
   const provider = document.getElementById('llm-provider').value;
   const baseUrl = document.getElementById('llm-baseurl').value.trim();
   const apiKey = document.getElementById('llm-apikey').value.trim();
-  const modelSelect = document.getElementById('llm-model-select').value;
-  const modelInput = document.getElementById('llm-model').value.trim();
-  const model = (modelSelect === '__custom__' ? modelInput : modelSelect) || PROVIDER_DEFAULTS[provider];
+  const model = document.getElementById('llm-model').value.trim();
 
-  llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack, queryMode });
+  const defaults = { openai: 'gpt-4o-mini', anthropic: 'claude-opus-4-6' };
 
-  if (statusModel) statusModel.textContent = model ? `· ${model}` : '';
+  llm.configure({
+    apiKey,
+    baseUrl,
+    provider,
+    model: model || defaults[provider],
+    zstackClient: zstack
+  });
 }
 
 async function saveLLMSettings() {
   const provider = document.getElementById('llm-provider').value;
   const baseUrl = document.getElementById('llm-baseurl').value.trim();
   const apiKey = document.getElementById('llm-apikey').value.trim();
-  const modelSelect = document.getElementById('llm-model-select').value;
-  const modelInput = document.getElementById('llm-model').value.trim();
-  const model = modelSelect === '__custom__' ? modelInput : modelSelect;
+  const model = document.getElementById('llm-model').value.trim();
 
-  await chrome.storage.local.set({ llmProvider: provider, llmBaseUrl: baseUrl, llmApiKey: apiKey, llmModel: model });
+  await chrome.storage.local.set({
+    llmProvider: provider,
+    llmBaseUrl: baseUrl,
+    llmApiKey: apiKey,
+    llmModel: model
+  });
+
   configureLLM();
   settingsPanel.classList.add('hidden');
-  checkSetupGuide();
-}
-
-function setStopButtonVisible(visible) {
-  if (btnStop) {
-    btnStop.classList.toggle('hidden', !visible);
-  }
 }
 
 // --- Chat ---
@@ -413,6 +221,7 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text || isProcessing) return;
 
+  // Check prerequisites
   if (!zstack.isLoggedIn()) {
     showError('请先连接 ZStack（点击 ⚙️ 配置）');
     return;
@@ -422,83 +231,33 @@ async function sendMessage() {
     return;
   }
 
+  // Clear welcome message
   const welcome = chatArea.querySelector('.welcome-msg');
   if (welcome) welcome.remove();
 
-  const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  appendMessage('user', text, now);
-  chatHistory.push({ role: 'user', text, time: now });
-
+  // Add user message
+  appendMessage('user', text);
   input.value = '';
   input.style.height = 'auto';
   btnSend.disabled = true;
   isProcessing = true;
-  responseStartTime = Date.now();
-  setStopButtonVisible(true);
 
+  // Add typing indicator
   const typingEl = appendTyping();
   let assistantBubble = null;
   let toolIndicator = null;
-  let thinkingEl = null;
-  let thinkingText = '';
-  let accumulatedText = '';
 
   try {
     const response = await llm.chat(text, (event) => {
-      if (event.type === 'thinking_delta') {
-        if (typingEl.parentNode) typingEl.remove();
-        thinkingText += event.text;
-        if (!thinkingEl) {
-          thinkingEl = document.createElement('div');
-          thinkingEl.className = 'message assistant';
-          thinkingEl.innerHTML = `<div class="message-bubble thinking-bubble">
-            <details class="thinking-block" open>
-              <summary><span class="thinking-icon">💭</span> 思考中...</summary>
-              <div class="thinking-content"></div>
-            </details>
-          </div>`;
-          chatArea.appendChild(thinkingEl);
-        }
-        const contentEl = thinkingEl.querySelector('.thinking-content');
-        contentEl.textContent = thinkingText;
-        scrollToBottom();
-      }
-      if (event.type === 'text_delta') {
-        if (typingEl.parentNode) typingEl.remove();
-        if (toolIndicator?.parentNode) toolIndicator.remove();
-        // 收到正文后，折叠思考过程
-        if (thinkingEl) {
-          const details = thinkingEl.querySelector('details');
-          if (details) {
-            details.removeAttribute('open');
-            details.querySelector('summary').innerHTML = `<span class="thinking-icon">💭</span> 思考完成 <span class="thinking-chars">${thinkingText.length}字</span>`;
-          }
-          thinkingEl = null;
-        }
-        accumulatedText += event.text;
-        if (!assistantBubble) {
-          assistantBubble = appendMessage('assistant', '', now);
-        }
-        const bubble = assistantBubble.querySelector('.message-bubble');
-        bubble.innerHTML = renderMarkdown(accumulatedText);
-        // Add streaming cursor
-        const cursor = document.createElement('span');
-        cursor.className = 'streaming-cursor';
-        bubble.appendChild(cursor);
-        addCodeCopyButtons(assistantBubble);
-        scrollToBottom();
-      }
       if (event.type === 'text') {
-        // Non-streaming fallback: full text at once
+        // Remove typing/tool indicators on first text
         if (typingEl.parentNode) typingEl.remove();
         if (toolIndicator?.parentNode) toolIndicator.remove();
-        accumulatedText = event.text;
+
         if (!assistantBubble) {
-          assistantBubble = appendMessage('assistant', '', now);
+          assistantBubble = appendMessage('assistant', '');
         }
-        const bubble = assistantBubble.querySelector('.message-bubble');
-        bubble.innerHTML = renderMarkdown(accumulatedText);
-        addCodeCopyButtons(assistantBubble);
+        assistantBubble.querySelector('.message-bubble').textContent += event.text;
         scrollToBottom();
       }
       if (event.type === 'tool_start') {
@@ -506,107 +265,38 @@ async function sendMessage() {
         if (toolIndicator?.parentNode) toolIndicator.remove();
         toolIndicator = document.createElement('div');
         toolIndicator.className = 'message assistant';
-        const details = event.toolDetails || event.tools.map(t => t.replace(/_/g, ' '));
-        const elapsed = ((Date.now() - responseStartTime) / 1000).toFixed(0);
-        const detailsHtml = details.map(d => `<div class="tool-detail-item">→ ${escapeHtml(d)}</div>`).join('');
-        toolIndicator.innerHTML = `<div class="message-bubble tool-progress"><div class="tool-spinner"></div><div class="tool-details"><div class="tool-round">第${event.round}轮调用 (${elapsed}s)</div>${detailsHtml}</div></div>`;
+        const toolList = event.tools.map(t => t.replace(/_/g, ' ')).join(', ');
+        toolIndicator.innerHTML = `<div class="message-bubble tool-progress">⚙️ 执行中 (第${event.round}轮): ${escapeHtml(toolList)}</div>`;
         chatArea.appendChild(toolIndicator);
         scrollToBottom();
       }
+      if (event.type === 'tool_done') {
+        // Keep indicator until next round or final text
+      }
     });
 
+    // If no streaming happened, show the full response
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
-
-    const finalText = accumulatedText || response || '';
-    const elapsed = ((Date.now() - responseStartTime) / 1000).toFixed(1);
-
-    if (!assistantBubble && finalText) {
-      assistantBubble = appendMessage('assistant', finalText, `${now} · ${elapsed}s`);
-    } else if (assistantBubble) {
-      const bubble = assistantBubble.querySelector('.message-bubble');
-      // Remove streaming cursor and render final
-      bubble.innerHTML = renderMarkdown(finalText);
-      addCodeCopyButtons(assistantBubble);
-      const timeEl = assistantBubble.querySelector('.msg-time');
-      if (timeEl) timeEl.textContent = `${now} · ${elapsed}s`;
+    if (!assistantBubble && response) {
+      appendMessage('assistant', response);
     }
-
-    chatHistory.push({ role: 'assistant', text: finalText, time: now });
-    saveChatHistory();
   } catch (e) {
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
-
-    if (e.message?.includes('session') || e.message?.includes('401') || e.message?.includes('login')) {
-      showError('会话已过期，正在重新连接...');
-      try {
-        await connectZStack();
-        showError('已重连，请重新发送');
-      } catch (re) {
-        showError('重连失败: ' + re.message);
-      }
-    } else {
-      lastFailedMsg = text;
-      showErrorWithRetry(e.message || '未知错误');
-    }
+    showError(e.message);
   }
 
   isProcessing = false;
-  setStopButtonVisible(false);
   btnSend.disabled = !input.value.trim();
   scrollToBottom();
 }
 
 // --- UI Helpers ---
-function appendMessage(role, text, time) {
+function appendMessage(role, text) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
-
-  const header = document.createElement('div');
-  header.className = 'msg-header';
-  const avatar = document.createElement('span');
-  avatar.className = 'msg-avatar';
-  avatar.textContent = role === 'user' ? '👤' : '⚡';
-  header.appendChild(avatar);
-  const label = document.createElement('span');
-  label.textContent = role === 'user' ? '你' : 'AI 助手';
-  header.appendChild(label);
-  div.appendChild(header);
-
-  const bubble = document.createElement('div');
-  bubble.className = 'message-bubble';
-  if (role === 'assistant' && text) {
-    bubble.innerHTML = renderMarkdown(text);
-  } else {
-    bubble.textContent = text;
-  }
-  div.appendChild(bubble);
-  if (role === 'assistant') addCodeCopyButtons(div);
-
-  const actions = document.createElement('div');
-  actions.className = 'msg-actions';
-  if (role === 'assistant') {
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'msg-action-btn';
-    copyBtn.textContent = '📋 复制';
-    copyBtn.addEventListener('click', () => {
-      const raw = text || bubble.textContent;
-      navigator.clipboard.writeText(raw).then(() => {
-        copyBtn.textContent = '✅ 已复制';
-        setTimeout(() => copyBtn.textContent = '📋 复制', 1500);
-      });
-    });
-    actions.appendChild(copyBtn);
-  }
-  if (time) {
-    const ts = document.createElement('span');
-    ts.className = 'msg-time';
-    ts.textContent = time;
-    actions.appendChild(ts);
-  }
-  div.appendChild(actions);
-
+  div.innerHTML = `<div class="message-bubble">${escapeHtml(text)}</div>`;
   chatArea.appendChild(div);
   scrollToBottom();
   return div;
@@ -615,9 +305,7 @@ function appendMessage(role, text, time) {
 function appendTyping() {
   const div = document.createElement('div');
   div.className = 'message assistant';
-  div.innerHTML = `
-    <div class="msg-header"><span class="msg-avatar">⚡</span><span>AI 助手</span></div>
-    <div class="message-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  div.innerHTML = `<div class="message-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
   chatArea.appendChild(div);
   scrollToBottom();
   return div;
@@ -629,43 +317,7 @@ function showError(msg) {
   div.textContent = msg;
   chatArea.appendChild(div);
   scrollToBottom();
-  setTimeout(() => { if (div.parentNode) div.remove(); }, 8000);
-}
-
-function showErrorWithRetry(msg) {
-  const div = document.createElement('div');
-  div.className = 'error-msg error-with-retry';
-  div.innerHTML = `<span>${escapeHtml(msg)}</span><button class="retry-btn">🔄 重试</button>`;
-  div.querySelector('.retry-btn').addEventListener('click', () => {
-    div.remove();
-    if (lastFailedMsg) {
-      input.value = lastFailedMsg;
-      lastFailedMsg = null;
-      sendMessage();
-    }
-  });
-  chatArea.appendChild(div);
-  scrollToBottom();
-}
-
-function exportConversation() {
-  if (chatHistory.length === 0) {
-    showError('没有对话可导出');
-    return;
-  }
-  const lines = chatHistory.map(m => {
-    const prefix = m.role === 'user' ? '👤 用户' : '🤖 助手';
-    const time = m.time ? ` [${m.time}]` : '';
-    return `### ${prefix}${time}\n\n${m.text}\n`;
-  });
-  const content = `# ZStack AI 对话记录\n\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n${lines.join('\n---\n\n')}`;
-  const blob = new Blob([content], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `zstack-chat-${new Date().toISOString().slice(0,10)}.md`;
-  a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => div.remove(), 8000);
 }
 
 function setStatus(state, text) {
@@ -681,39 +333,6 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
-}
-
-// --- Chat History Persistence ---
-async function saveChatHistory() {
-  try {
-    const toSave = chatHistory.slice(-50);
-    await chrome.storage.local.set({ chatHistory: toSave });
-  } catch (e) {
-    console.error('Save chat history error:', e);
-  }
-}
-
-async function loadChatHistory() {
-  try {
-    const data = await chrome.storage.local.get('chatHistory');
-    if (!data.chatHistory || data.chatHistory.length === 0) return;
-
-    chatHistory = data.chatHistory;
-    const welcome = chatArea.querySelector('.welcome-msg');
-    if (welcome) welcome.remove();
-
-    for (const msg of chatHistory) {
-      appendMessage(msg.role, msg.text, msg.time);
-      if (msg.role === 'user') {
-        llm.messages.push({ role: 'user', content: msg.text });
-      } else if (msg.role === 'assistant') {
-        llm.messages.push({ role: 'assistant', content: msg.text });
-      }
-    }
-    scrollToBottom();
-  } catch (e) {
-    console.error('Load chat history error:', e);
-  }
 }
 
 // --- Start ---

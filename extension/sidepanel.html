@@ -12,10 +12,8 @@
     <div class="header-title">
       <span class="logo">⚡</span>
       <span>ZStack AI</span>
-      <span class="version-badge">v1.0</span>
     </div>
     <div class="header-actions">
-      <button id="btn-export" class="icon-btn" title="导出对话为 Markdown">📥</button>
       <button id="btn-clear" class="icon-btn" title="清空对话">🗑️</button>
       <button id="btn-settings" class="icon-btn" title="设置">⚙️</button>
     </div>
@@ -25,24 +23,13 @@
   <div id="status-bar" class="status-bar disconnected">
     <span class="status-dot"></span>
     <span id="status-text">未连接</span>
-    <span id="status-model" class="status-model"></span>
-    <div class="mode-toggle">
-      <button id="btn-mode" class="mode-btn" title="点击切换查询模式">⚡ 精简</button>
-      <div id="mode-tooltip" class="mode-tooltip hidden">
-        <p><b>⚡ 精简模式</b>：统计概览 + 前20条预览，省 token，响应快</p>
-        <p><b>📋 全量模式</b>：分批查询全部记录并完整展示，适合导出或全面分析</p>
-      </div>
-    </div>
+    <span id="version-info" class="version-info"></span>
   </div>
 
   <!-- Settings panel -->
   <div id="settings-panel" class="settings-panel hidden">
-    <div class="settings-tabs">
-      <button class="settings-tab active" data-tab="zstack">☁️ ZStack</button>
-      <button class="settings-tab" data-tab="llm">🤖 AI 模型</button>
-    </div>
-    
-    <div class="settings-content" id="tab-zstack">
+    <div class="settings-section">
+      <h3>ZStack 连接</h3>
       <div class="field">
         <label>API 地址</label>
         <input type="text" id="zstack-endpoint" placeholder="http://172.24.245.30:8080">
@@ -55,23 +42,19 @@
         <label>密码</label>
         <input type="password" id="zstack-password" placeholder="password">
       </div>
-      <button id="btn-connect" class="btn btn-primary btn-full">连接 ZStack</button>
+      <button id="btn-connect" class="btn btn-primary">连接</button>
     </div>
-    
-    <div class="settings-content hidden" id="tab-llm">
+    <div class="settings-section">
+      <h3>AI 模型</h3>
       <div class="field">
         <label>提供商</label>
         <select id="llm-provider">
           <option value="openai">OpenAI</option>
           <option value="anthropic">Anthropic (Claude)</option>
-          <option value="glm">智谱 GLM</option>
-          <option value="deepseek">DeepSeek</option>
-          <option value="qwen">通义千问 (Qwen)</option>
-          <option value="minimax">MiniMax</option>
         </select>
       </div>
       <div class="field">
-        <label>API Base URL <span class="field-hint">（留空用官方地址）</span></label>
+        <label>API Base URL（可选，留空用官方地址）</label>
         <input type="text" id="llm-baseurl" placeholder="https://api.openai.com">
       </div>
       <div class="field">
@@ -80,14 +63,9 @@
       </div>
       <div class="field">
         <label>模型</label>
-        <div class="model-combo">
-          <select id="llm-model-select">
-            <option value="">选择模型...</option>
-          </select>
-          <input type="text" id="llm-model" placeholder="或输入自定义模型名">
-        </div>
+        <input type="text" id="llm-model" placeholder="gpt-4o-mini">
       </div>
-      <button id="btn-save-llm" class="btn btn-primary btn-full">保存配置</button>
+      <button id="btn-save-llm" class="btn">保存</button>
     </div>
   </div>
 
@@ -95,52 +73,29 @@
   <div id="chat-area" class="chat-area">
     <div class="welcome-msg">
       <div class="welcome-icon">⚡</div>
-      <h2>ZStack AI 运维助手</h2>
-      <p class="welcome-sub">用自然语言管理你的云平台</p>
-      <div class="welcome-features">
-        <div class="feature-item">📊 查询资源状态</div>
-        <div class="feature-item">🚀 创建和管理云主机</div>
-        <div class="feature-item">🔍 ZQL 智能查询</div>
-        <div class="feature-item">📋 全量数据导出</div>
-      </div>
+      <p>ZStack AI 运维助手</p>
+      <p class="welcome-sub">配置连接后，用自然语言管理你的云平台</p>
       <div class="quick-actions">
         <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
+        <button class="quick-btn" data-msg="帮我创建一台云主机">➕ 创建云主机</button>
         <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
         <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
-        <button class="quick-btn" data-msg="查看网络列表">🌐 网络列表</button>
-        <button class="quick-btn" data-msg="查看存储状态">💾 存储状态</button>
-        <button class="quick-btn" data-msg="查看负载均衡">⚖️ 负载均衡</button>
       </div>
     </div>
   </div>
-
-  <!-- Scroll to bottom button -->
-  <button id="btn-scroll-bottom" class="scroll-bottom-btn hidden" title="滚动到底部">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-      <path d="M7 13l5 5 5-5M7 6l5 5 5-5"/>
-    </svg>
-  </button>
 
   <!-- Input area -->
   <div class="input-area">
     <div class="input-wrapper">
-      <textarea id="input" placeholder="输入指令，如：帮我查一下运行中的云主机" rows="1"></textarea>
-      <button id="btn-stop" class="stop-btn hidden" title="停止生成">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="6" y="6" width="12" height="12" rx="2"/>
-        </svg>
-      </button>
+      <textarea id="input" placeholder="输入指令，如：帮我起一台 CentOS 云主机" rows="1"></textarea>
       <button id="btn-send" class="send-btn" disabled>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
         </svg>
       </button>
     </div>
-    <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
   </div>
 
-  <script src="lib/marked.min.js"></script>
-  <script src="lib/purify.min.js"></script>
   <script type="module" src="sidepanel.js"></script>
 </body>
 </html>
