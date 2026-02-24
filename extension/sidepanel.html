@@ -45,14 +45,15 @@
     </div>
   </div>
 
-  <!-- Chat area -->
-  <!-- 云平台配置弹窗 -->
-  <div id="panel-zstack" class="settings-panel hidden">
-    <div class="panel-header">
-      <h3>☁️ 云平台配置</h3>
-      <button class="panel-close" onclick="document.getElementById('panel-zstack').classList.add('hidden')">×</button>
+  <!-- Settings panel -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="zstack">☁️ 云平台</button>
+      <button class="settings-tab" data-tab="llm">🤖 AI 模型</button>
+      <button class="settings-tab" data-tab="theme">🎨 主题</button>
     </div>
-    <div class="panel-content">
+    
+    <div class="settings-content" id="tab-zstack">
       <div class="field">
         <label>平台类型</label>
         <select id="platform-type">
@@ -79,15 +80,8 @@
       </div>
       <button id="btn-connect" class="btn btn-primary btn-full">保存配置并连接</button>
     </div>
-  </div>
-
-  <!-- AI 模型配置弹窗 -->
-  <div id="panel-llm" class="settings-panel hidden">
-    <div class="panel-header">
-      <h3>🤖 AI 模型配置</h3>
-      <button class="panel-close" onclick="document.getElementById('panel-llm').classList.add('hidden')">×</button>
-    </div>
-    <div class="panel-content">
+    
+    <div class="settings-content hidden" id="tab-llm">
       <div class="field">
         <label>提供商</label>
         <select id="llm-provider">
@@ -118,15 +112,8 @@
       </div>
       <button id="btn-save-llm" class="btn btn-primary btn-full">保存配置</button>
     </div>
-  </div>
-
-  <!-- 主题配置弹窗 -->
-  <div id="panel-theme" class="settings-panel hidden">
-    <div class="panel-header">
-      <h3>🎨 主题设置</h3>
-      <button class="panel-close" onclick="document.getElementById('panel-theme').classList.add('hidden')">×</button>
-    </div>
-    <div class="panel-content">
+    
+    <div class="settings-content hidden" id="tab-theme">
       <div class="field">
         <label>主题颜色</label>
         <select id="theme-color">
@@ -139,7 +126,6 @@
       <button id="btn-save-theme" class="btn btn-primary btn-full">保存</button>
     </div>
   </div>
-
 
   <!-- Chat area -->
   <div id="chat-area" class="chat-area">
