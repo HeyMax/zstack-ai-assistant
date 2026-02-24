@@ -87,6 +87,20 @@ export class ZStackClient {
     return this._put(`/${resourcePath}/${uuid}/actions`, body);
   }
 
+  // ========== System ==========
+  
+  // 获取 ZStack 版本
+  async getVersion() {
+    try {
+      // PUT /zstack/v1/management-nodes/actions with {"getVersion": {}}
+      const res = await this._put('/v1/management-nodes/actions', { getVersion: {} });
+      return res;
+    } catch (e) {
+      console.warn('Failed to get version:', e);
+      return { version: 'unknown' };
+    }
+  }
+
   // ========== Convenience Methods (common operations) ==========
 
   // VM
