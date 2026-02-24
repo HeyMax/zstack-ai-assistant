@@ -385,32 +385,7 @@ async function connectZStack() {
 
   setStatus('connecting', '连接中...');
 
-  // 检测重复环境
-  const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
-  if (existingIdx >= 0) {
-    // 已有该环境，显示提示并切换到该环境（不重复添加）
-    const existingEnv = environments[existingIdx];
-    currentEnvId = existingIdx;
-    await chrome.storage.local.set({ currentEnvId });
-    renderEnvSelector();
-    document.getElementById('env-select').value = currentEnvId;
-    showMessage(`⚠️ 已有该环境配置，环境名称：${existingEnv.name}`);
-    return;  // 不再保存，直接返回
-  }
-
-  // 保存环境信息
-  const env = { platform, name: envName, endpoint, account, password };
-  if (existingIdx < 0) {
-    environments.push(env);
-    currentEnvId = environments.length - 1;
-  }
-  await chrome.storage.local.set({ environments, currentEnvId, zstackEndpoint: endpoint, zstackAccount: account, zstackPassword: password });
-  renderEnvSelector();
-  document.getElementById('env-select').value = currentEnvId;
-  if (existingIdx < 0) {
-    showMessage(`✅ 已保存环境: ${envName}`);
-  }
-
+  // 先尝试连接，连接成功后再保存
   try {
     zstack.configure(endpoint);
     await zstack.login(account, password);
@@ -421,7 +396,33 @@ async function connectZStack() {
   } catch (e) {
     setStatus('disconnected', '连接失败');
     showError(`连接失败: ${e.message}`);
+    return;  // 连接失败，不保存
   }
+
+  // 连接成功后，检测重复环境
+  const existingIdx = environments.findIndex(e => e.endpoint === endpoint);
+  if (existingIdx >= 0) {
+    // 已有该环境，更新配置并提示
+    environments[existingIdx] = { platform, name: envName, endpoint, account, password };
+    currentEnvId = existingIdx;
+    showMessage(`✅ 已更新环境配置: ${envName}`);
+  } else {
+    // 新增环境
+    environments.push({ platform, name: envName, endpoint, account, password });
+    currentEnvId = environments.length - 1;
+    showMessage(`✅ 已保存环境: ${envName}`);
+  }
+  
+  await chrome.storage.local.set({ 
+    environments, 
+    currentEnvId,
+    zstackEndpoint: endpoint,
+    zstackAccount: account,
+    zstackPassword: password
+  });
+  renderEnvSelector();
+  document.getElementById('env-select').value = currentEnvId;
+}
 }
 
 function configureLLM() {
