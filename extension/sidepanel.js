@@ -891,4 +891,14 @@ function setupEnvEventListeners() {
     setStatus('disconnected', '环境已删除');
     showMessage('✅ 环境已删除');
   });
+  
+  // AI 模型配置按钮
+  const btnLLMConfig = document.getElementById('btn-llm-config');
+  btnLLMConfig?.addEventListener('click', () => {
+    settingsPanel.classList.remove('hidden');
+    document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.settings-content').forEach(c => c.classList.add('hidden'));
+    document.querySelector('.settings-tab[data-tab="llm"]').classList.add('active');
+    document.getElementById('tab-llm').classList.remove('hidden');
+  });
 }
