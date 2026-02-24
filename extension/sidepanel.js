@@ -877,6 +877,11 @@ function setupEnvEventListeners() {
     environments.splice(currentEnvId, 1);
     currentEnvId = null;
     await chrome.storage.local.set({ environments, currentEnvId });
+    
+    // 清除连接状态
+    zstack.logout();
+    await chrome.storage.local.remove(['zstackEndpoint', 'zstackAccount', 'zstackPassword']);
+    
     renderEnvSelector();
     // 清空表单
     document.getElementById('env-name').value = '';

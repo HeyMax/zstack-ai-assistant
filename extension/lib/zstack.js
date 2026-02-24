@@ -16,6 +16,12 @@ export class ZStackClient {
     return !!this.sessionId;
   }
 
+  logout() {
+    this.sessionId = null;
+    this._accountName = null;
+    this._password = null;
+  }
+
   async login(accountName, password) {
     // Save credentials for auto-reconnect on session expiry
     this._accountName = accountName;
