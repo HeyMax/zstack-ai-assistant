@@ -62,6 +62,15 @@ let responseStartTime = 0;
 let environments = [];  // 环境列表
 let currentEnvId = null;  // 当前选中环境 ID
 
+// 应用主题
+function applyTheme(theme) {
+  if (theme === 'system') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+}
+
 // --- Init ---
 async function init() {
   try {
@@ -182,15 +191,6 @@ function setupEventListeners() {
     settingsPanel.classList.add('hidden');
   });
 
-  // 应用主题
-  function applyTheme(theme) {
-    if (theme === 'system') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.setAttribute('data-theme', theme);
-    }
-  }
-  
   document.getElementById('btn-export').addEventListener('click', exportConversation);
 
   // Stop button
