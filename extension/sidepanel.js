@@ -486,7 +486,10 @@ async function sendMessage() {
 
   input.value = '';
   input.style.height = 'auto';
+  // 禁用输入框和发送按钮，防止重复提交
+  input.disabled = true;
   btnSend.disabled = true;
+  input.classList.add('input-disabled');
   isProcessing = true;
   responseStartTime = Date.now();
   setStopButtonVisible(true);
@@ -593,22 +596,38 @@ async function sendMessage() {
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
 
-    if (e.message?.includes('session') || e.message?.includes('401') || e.message?.includes('login')) {
+    // 更友好的错误提示
+    let errorMsg = e.message || '未知错误';
+    if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('net::ERR')) {
+      errorMsg = '网络连接失败，请检查 ZStack 服务是否可用';
+    } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+      errorMsg = '请求超时，请稍后重试';
+    } else if (errorMsg.includes('session') || errorMsg.includes('401') || errorMsg.includes('login') || errorMsg.includes('OAuth')) {
       showError('会话已过期，正在重新连接...');
       try {
         await connectZStack();
         showError('已重连，请重新发送');
+        isProcessing = false;
+        setStopButtonVisible(false);
+        input.disabled = false;
+        input.classList.remove('input-disabled');
+        btnSend.disabled = !input.value.trim();
+        scrollToBottom();
+        return;
       } catch (re) {
-        showError('重连失败: ' + re.message);
+        errorMsg = '会话过期，重连失败: ' + re.message;
       }
-    } else {
-      lastFailedMsg = text;
-      showErrorWithRetry(e.message || '未知错误');
     }
+
+    lastFailedMsg = text;
+    showErrorWithRetry(errorMsg);
   }
 
   isProcessing = false;
   setStopButtonVisible(false);
+  // 恢复输入框状态
+  input.disabled = false;
+  input.classList.remove('input-disabled');
   btnSend.disabled = !input.value.trim();
   scrollToBottom();
 }

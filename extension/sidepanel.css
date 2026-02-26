@@ -752,6 +752,12 @@ body {
   max-height: 120px;
   font-family: inherit;
   color: #1a1a2e;
+  transition: opacity 0.2s;
+}
+
+#input.input-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 #input::placeholder { color: #9ca3af; }
