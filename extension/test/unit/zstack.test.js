@@ -35,17 +35,15 @@ describe('ZStackClient', () => {
   });
 
   describe('登录功能', () => {
-    it('应该生成 SHA-512 哈希', async () => {
-      // SHA-512 生成 64 字节的哈希，转为 16 进制字符串是 128 位
+    it('应该能调用 crypto.subtle.digest', async () => {
+      // 测试 crypto.subtle.digest 能正常调用（具体哈希值取决于实现）
       const password = 'test123';
       const encoder = new TextEncoder();
       const data = encoder.encode(password);
       const hashBuffer = await crypto.subtle.digest('SHA-512', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashedPassword = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       
-      // SHA-512 = 512bit = 64bytes = 128 hex chars
-      expect(hashedPassword.length).toBeGreaterThanOrEqual(100);
+      // SHA-512 输出 64 字节
+      expect(hashBuffer.byteLength).toBe(64);
     });
   });
 
