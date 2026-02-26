@@ -84,12 +84,13 @@ async function loadSettings() {
     'zstackEndpoint', 'zstackAccount', 'zstackPassword',
     'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
     'initialized', 'queryMode',
-    'environments', 'currentEnvId'
+    'environments', 'currentEnvId',
+    'themeColor'
   ]);
 
-  // 加载环境列表
-  environments = data.environments || [];
-  currentEnvId = data.currentEnvId ?? null;
+  // 加载主题
+  const theme = data.themeColor || 'system';
+  applyTheme(theme);
 
   // 渲染环境选择器
   renderEnvSelector();
@@ -107,12 +108,14 @@ async function loadSettings() {
       llmBaseUrl: '',
       llmApiKey: '',
       llmModel: '',
-      queryMode: 'compact'
+      queryMode: 'compact',
+      themeColor: 'system'
     });
     data.llmProvider = 'openai';
     data.llmBaseUrl = '';
     data.llmApiKey = '';
     data.llmModel = '';
+    data.themeColor = 'system';
     // First time: show settings panel to guide user
     settingsPanel.classList.remove('hidden');
     // Switch to LLM tab
@@ -172,11 +175,21 @@ function setupEventListeners() {
   btnSaveLLM.addEventListener('click', saveLLMSettings);
 
   document.getElementById('btn-save-theme').addEventListener('click', async () => {
-    const color = document.getElementById('theme-color').value;
-    await chrome.storage.local.set({ themeColor: color });
+    const theme = document.getElementById('theme-color').value;
+    await chrome.storage.local.set({ themeColor: theme });
+    applyTheme(theme);
     showMessage("✅ 主题已保存");
     settingsPanel.classList.add('hidden');
-  });  document.getElementById('btn-export').addEventListener('click', exportConversation);
+  });
+
+  // 应用主题
+  function applyTheme(theme) {
+    if (theme === 'system') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }  document.getElementById('btn-export').addEventListener('click', exportConversation);
 
   // Stop button
   if (btnStop) {
