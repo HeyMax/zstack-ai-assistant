@@ -267,6 +267,8 @@ function setupEventListeners() {
 function clearChat() {
   llm.clearHistory();
   chatHistory = [];
+  currentUsage = null;
+  sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
   chrome.storage.local.remove('chatHistory');
   chatArea.innerHTML = buildWelcomeHTML();
   bindQuickButtons();
@@ -588,12 +590,19 @@ async function sendMessage() {
         scrollToBottom();
       }
       if (event.type === 'usage') {
-        // 保存 token 消耗统计
+        // 保存当前任务的 token 消耗统计
         currentUsage = {
           prompt_tokens: event.prompt_tokens || 0,
           completion_tokens: event.completion_tokens || 0,
-          total_tokens: event.total_tokens || 0
+          total_tokens: event.total_tokens || 0,
+          estimated: event.estimated || false
         };
+        // 累加到会话总量
+        sessionUsage.prompt += currentUsage.prompt_tokens;
+        sessionUsage.completion += currentUsage.completion_tokens;
+        sessionUsage.total += currentUsage.total_tokens;
+        // 如果任意一次是估算的，标记为估算
+        if (event.estimated) sessionUsage.estimated = true;
       }
     });
 
@@ -617,13 +626,14 @@ async function sendMessage() {
     chatHistory.push({ role: 'assistant', text: finalText, time: now });
     
     // 显示 token 消耗统计
+    const estimatedLabel = currentUsage?.estimated ? ' (估算)' : '';
+    const sessionEstimatedLabel = sessionUsage.estimated ? ' (估算)' : '';
     const usageIndicator = document.createElement('div');
     usageIndicator.className = 'message assistant';
     usageIndicator.innerHTML = `<div class="message-bubble token-stats">
       <span class="token-icon">📊</span> Token 消耗: 
-      <span class="token-prompt">输入 ${currentUsage?.prompt_tokens || 0}</span> / 
-      <span class="token-completion">输出 ${currentUsage?.completion_tokens || 0}</span> / 
-      <span class="token-total">总计 ${currentUsage?.total_tokens || 0}</span>
+      本次 ${currentUsage?.total_tokens || 0}${estimatedLabel} / 
+      会话累计 ${sessionUsage.total}${sessionEstimatedLabel}
     </div>`;
     chatArea.appendChild(usageIndicator);
     scrollToBottom();
@@ -819,6 +829,7 @@ async function loadChatHistory() {
     if (!data.chatHistory || data.chatHistory.length === 0) return;
 
     chatHistory = data.chatHistory;
+    sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
     const welcome = chatArea.querySelector('.welcome-msg');
     if (welcome) welcome.remove();
 
