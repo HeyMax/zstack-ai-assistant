@@ -189,7 +189,9 @@ function setupEventListeners() {
     } else {
       document.documentElement.setAttribute('data-theme', theme);
     }
-  }  document.getElementById('btn-export').addEventListener('click', exportConversation);
+  }
+  
+  document.getElementById('btn-export').addEventListener('click', exportConversation);
 
   // Stop button
   if (btnStop) {
