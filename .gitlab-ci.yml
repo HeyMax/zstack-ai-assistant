@@ -1,0 +1,15 @@
+# GitLab CI: 自动同步到 GitHub
+sync_to_github:
+  image: alpine:latest
+  only:
+    - master
+  before_script:
+    - apk add --no-cache git curl
+    - git config --global user.email "bot@zstack.io"
+    - git config --global user.name "GitLab Bot"
+    - git clone --bare . /repo.git
+  script:
+    - >
+      cd /repo.git &&
+      git push --mirror https://HeyMax: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@github.com/HeyMax/zstack-ai-assistant.git
+  when: always
