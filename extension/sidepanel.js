@@ -28,11 +28,11 @@ function addCodeCopyButtons(container) {
     wrapper.appendChild(pre);
     const btn = document.createElement('button');
     btn.className = 'code-copy-btn';
-    btn.textContent = '📋';
+    btn.innerHTML = '<span class="material-icon">content_copy</span>';
     btn.addEventListener('click', () => {
       navigator.clipboard.writeText(pre.textContent).then(() => {
-        btn.textContent = '✅';
-        setTimeout(() => btn.textContent = '📋', 1500);
+        btn.innerHTML = '<span class="material-icon">check</span>';
+        setTimeout(() => btn.innerHTML = '<span class="material-icon">content_copy</span>', 1500);
       });
     });
     wrapper.insertBefore(btn, pre);
@@ -187,7 +187,7 @@ function setupEventListeners() {
     const theme = document.getElementById('theme-color').value;
     await chrome.storage.local.set({ themeColor: theme });
     applyTheme(theme);
-    showMessage("✅ 主题已保存");
+    showMessage("<span class="material-icon">check</span> 主题已保存");
     settingsPanel.classList.add('hidden');
   });
 
@@ -288,7 +288,7 @@ function buildWelcomeHTML() {
             ${!endpoint ? '<li>配置 ZStack API 连接地址</li>' : ''}
             ${!apiKey ? '<li>配置 AI 模型 API Key</li>' : ''}
           </ol>
-          <p>点击右上角 ⚙️ 打开设置</p>
+          <p>点击右上角 <span class="material-icon">settings</span> 打开设置</p>
         </div>
       </div>`;
   } else {
@@ -297,7 +297,7 @@ function buildWelcomeHTML() {
 
   return `
     <div class="welcome-msg">
-      <div class="welcome-icon">⚡</div>
+      <div class="welcome-icon"><span class="material-icon">bolt</span></div>
       <h2>ZStack AI 运维助手</h2>
       <p class="welcome-sub">用自然语言管理你的云平台</p>
       ${guideHTML}
@@ -305,14 +305,14 @@ function buildWelcomeHTML() {
         <div class="feature-item">📊 查询资源状态</div>
         <div class="feature-item">🚀 创建和管理云主机</div>
         <div class="feature-item">🔍 ZQL 智能查询</div>
-        <div class="feature-item">📋 全量数据导出</div>
+        <div class="feature-item"><span class="material-icon">list_alt</span> 全量数据导出</div>
       </div>
       <div class="quick-actions">
-        <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
+        <button class="quick-btn" data-msg="查看所有云主机"><span class="material-icon">list_alt</span> 查看云主机</button>
         <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
         <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
         <button class="quick-btn" data-msg="查看网络列表">🌐 网络列表</button>
-        <button class="quick-btn" data-msg="查看存储状态">💾 存储状态</button>
+        <button class="quick-btn" data-msg="查看存储状态"><span class="material-icon">storage</span> 存储状态</button>
         <button class="quick-btn" data-msg="查看负载均衡">⚖️ 负载均衡</button>
       </div>
     </div>`;
@@ -321,10 +321,10 @@ function buildWelcomeHTML() {
 function updateModeButton() {
   const btn = document.getElementById('btn-mode');
   if (queryMode === 'full') {
-    btn.textContent = '📋 全量';
+    btn.innerHTML = '<span class="material-icon">list_alt</span> 全量';
     btn.classList.add('full-mode');
   } else {
-    btn.textContent = '⚡ 精简';
+    btn.innerHTML = '<span class="material-icon">bolt</span> 精简';
     btn.classList.remove('full-mode');
   }
 }
@@ -426,12 +426,12 @@ async function connectZStack() {
     // 已有该环境，更新配置并提示
     environments[existingIdx] = { platform, name: envName, endpoint, account, password };
     currentEnvId = existingIdx;
-    showMessage(`✅ 已更新环境配置: ${envName}`);
+    showMessage(`<span class="material-icon">check_circle</span> 已更新环境配置: ${envName}`);
   } else {
     // 新增环境
     environments.push({ platform, name: envName, endpoint, account, password });
     currentEnvId = environments.length - 1;
-    showMessage(`✅ 已保存环境: ${envName}`);
+    showMessage(`<span class="material-icon">check_circle</span> 已保存环境: ${envName}`);
   }
   
   await chrome.storage.local.set({ 
@@ -484,11 +484,11 @@ async function sendMessage() {
   if (!text || isProcessing) return;
 
   if (!zstack.isLoggedIn()) {
-    showError('请先连接 ZStack（点击 ⚙️ 配置）');
+    showError('请先连接 ZStack（点击 <span class="material-icon">settings</span> 配置）');
     return;
   }
   if (!llm.apiKey) {
-    showError('请先配置 AI 模型 API Key（点击 ⚙️ 配置）');
+    showError('请先配置 AI 模型 API Key（点击 <span class="material-icon">settings</span> 配置）');
     return;
   }
 
@@ -526,7 +526,7 @@ async function sendMessage() {
           thinkingEl.className = 'message assistant';
           thinkingEl.innerHTML = `<div class="message-bubble thinking-bubble">
             <details class="thinking-block" open>
-              <summary><span class="thinking-icon">💭</span> 思考中...</summary>
+              <summary><span class="material-icon" style="font-size:14px">psychology</span></span> 思考中...</summary>
               <div class="thinking-content"></div>
             </details>
           </div>`;
@@ -544,7 +544,7 @@ async function sendMessage() {
           const details = thinkingEl.querySelector('details');
           if (details) {
             details.removeAttribute('open');
-            details.querySelector('summary').innerHTML = `<span class="thinking-icon">💭</span> 思考完成 <span class="thinking-chars">${thinkingText.length}字</span>`;
+            details.querySelector('summary').innerHTML = `<span class="material-icon" style="font-size:14px">psychology</span></span> 思考完成 <span class="thinking-chars">${thinkingText.length}字</span>`;
           }
           thinkingEl = null;
         }
@@ -656,7 +656,7 @@ function appendMessage(role, text, time) {
   header.className = 'msg-header';
   const avatar = document.createElement('span');
   avatar.className = 'msg-avatar';
-  avatar.textContent = role === 'user' ? '👤' : '⚡';
+  avatar.innerHTML = role === 'user' ? '<span class="material-icon" style="font-size:14px">person</span>' : '<span class="material-icon" style="font-size:14px">smart_toy</span>';
   header.appendChild(avatar);
   const label = document.createElement('span');
   label.textContent = role === 'user' ? '你' : 'AI 助手';
@@ -678,12 +678,12 @@ function appendMessage(role, text, time) {
   if (role === 'assistant') {
     const copyBtn = document.createElement('button');
     copyBtn.className = 'msg-action-btn';
-    copyBtn.textContent = '📋 复制';
+    copyBtn.textContent = '<span class="material-icon">content_copy</span> 复制';
     copyBtn.addEventListener('click', () => {
       const raw = text || bubble.textContent;
       navigator.clipboard.writeText(raw).then(() => {
-        copyBtn.textContent = '✅ 已复制';
-        setTimeout(() => copyBtn.textContent = '📋 复制', 1500);
+        copyBtn.textContent = '<span class="material-icon">check</span> 已复制';
+        setTimeout(() => copyBtn.textContent = '<span class="material-icon">content_copy</span> 复制', 1500);
       });
     });
     actions.appendChild(copyBtn);
@@ -705,7 +705,7 @@ function appendTyping() {
   const div = document.createElement('div');
   div.className = 'message assistant';
   div.innerHTML = `
-    <div class="msg-header"><span class="msg-avatar">⚡</span><span>AI 助手</span></div>
+    <div class="msg-header"><span class="msg-avatar"><span class="material-icon" style="font-size:14px">smart_toy</span></span><span>AI 助手</span></div>
     <div class="message-bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
   chatArea.appendChild(div);
   scrollToBottom();
@@ -752,7 +752,7 @@ function exportConversation() {
     return;
   }
   const lines = chatHistory.map(m => {
-    const prefix = m.role === 'user' ? '👤 用户' : '🤖 助手';
+    const prefix = m.role === 'user' ? '<span class="material-icon" style="font-size:14px">person</span> 用户' : '<span class="material-icon" style="font-size:14px">smart_toy</span> 助手';
     const time = m.time ? ` [${m.time}]` : '';
     return `### ${prefix}${time}\n\n${m.text}\n`;
   });
@@ -879,7 +879,7 @@ function setupEnvEventListeners() {
           chrome.storage.local.set({ chatHistory: [] });
           
           configureLLM();
-          showMessage(`✅ 已切换到环境: ${env.name}`);
+          showMessage(`<span class="material-icon">check_circle</span> 已切换到环境: ${env.name}`);
         } catch (err) {
           setStatus('disconnected', '连接失败');
           showError(`连接失败: ${err.message}`);
@@ -929,7 +929,7 @@ function setupEnvEventListeners() {
     document.getElementById('zstack-account').value = 'admin';
     document.getElementById('zstack-password').value = '';
     setStatus('disconnected', '环境已删除');
-    showMessage('✅ 环境已删除');
+    showMessage('<span class="material-icon">delete</span> 环境已删除');
   });
   
   // AI 模型配置按钮
