@@ -951,3 +951,21 @@ body {
   color: var(--text-muted);
   margin-top: 4px;
 }
+
+/* SVG Icons - ensure they work with dark/light theme */
+.logo svg,
+.icon-btn svg,
+.settings-tab svg,
+.mode-btn svg,
+.feature-item svg,
+.quick-btn svg,
+.msg-avatar svg,
+.welcome-icon svg {
+  fill: currentColor !important;
+}
+
+/* Fallback for older browsers */
+.logo::svg,
+.icon-btn::svg {
+  fill: inherit;
+}
