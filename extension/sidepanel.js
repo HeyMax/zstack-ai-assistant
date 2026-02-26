@@ -192,6 +192,70 @@ function setupEventListeners() {
     settingsPanel.classList.add('hidden');
   });
 
+  // 导出配置
+  document.getElementById('btn-export-config').addEventListener('click', async () => {
+    const data = await chrome.storage.local.get([
+      'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
+      'environments', 'currentEnvId', 'themeColor', 'queryMode'
+    ]);
+    const config = {
+      version: '1.1',
+      exportTime: new Date().toISOString(),
+      llmProvider: data.llmProvider,
+      llmBaseUrl: data.llmBaseUrl,
+      llmApiKey: data.llmApiKey,
+      llmModel: data.llmModel,
+      environments: data.environments || [],
+      currentEnvId: data.currentEnvId,
+      themeColor: data.themeColor || 'system',
+      queryMode: data.queryMode || 'compact'
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zstack-ai-config-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导出`);
+  });
+
+  // 导入配置
+  document.getElementById('btn-import-config').addEventListener('click', () => {
+    document.getElementById('import-file').click();
+  });
+
+  document.getElementById('import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const config = JSON.parse(text);
+      if (!config.version) {
+        showError('无效的配置文件格式');
+        return;
+      }
+      // 导入配置
+      const settings = {
+        llmProvider: config.llmProvider,
+        llmBaseUrl: config.llmBaseUrl,
+        llmApiKey: config.llmApiKey,
+        llmModel: config.llmModel,
+        environments: config.environments,
+        currentEnvId: config.currentEnvId,
+        themeColor: config.themeColor,
+        queryMode: config.queryMode
+      };
+      await chrome.storage.local.set(settings);
+      // 重新加载
+      await loadSettings();
+      showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导入，重启插件生效`);
+    } catch (err) {
+      showError(`导入失败: ${err.message}`);
+    }
+    e.target.value = '';
+  });
+
   document.getElementById('btn-export').addEventListener('click', exportConversation);
 
   // Stop button
