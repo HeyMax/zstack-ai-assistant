@@ -327,10 +327,35 @@ export class LLMEngine {
       ...(validToolCalls.length > 0 ? { tool_calls: validToolCalls } : {})
     };
 
+    // Emit usage event with token counts (for streaming, estimate based on message content)
+    const estimatedUsage = this._estimateUsage(content, this.messages);
+    emit('usage', estimatedUsage);
+
     return {
       content: content || '',
       toolCalls: validToolCalls.length > 0 ? validToolCalls : null,
       rawMessage
+    };
+  }
+
+  // ========== Estimate token usage ==========
+  _estimateUsage(content, messages) {
+    // Rough estimation: ~1 token ≈ 4 chars for Chinese, ~3.5 chars for English
+    const estimateChars = (text) => {
+      if (!text) return 0;
+      const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+      const otherChars = text.length - chineseChars;
+      return Math.ceil(chineseChars / 4 * 1.3 + otherChars / 3.5);
+    };
+
+    const promptTokens = messages.reduce((sum, m) => sum + estimateChars(m.content), 0);
+    const completionTokens = estimateChars(content);
+    const totalTokens = promptTokens + completionTokens;
+
+    return {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: totalTokens
     };
   }
 
@@ -363,6 +388,10 @@ export class LLMEngine {
       ...tc,
       type: tc.type || 'function'
     })) || null;
+
+    // Emit usage from actual API response if available
+    const usage = data.usage || this._estimateUsage(msg.content || '', this.messages);
+    emit('usage', usage);
 
     return {
       content: msg.content || '',
@@ -501,6 +530,10 @@ export class LLMEngine {
 
     const toolBlocks = contentBlocks.filter(b => b?.type === 'tool_use');
     const rawContent = contentBlocks.filter(b => b != null);
+
+    // Estimate usage for Anthropic (no streaming usage data)
+    const usage = this._estimateUsage(textContent, this.messages);
+    emit('usage', usage);
 
     return {
       content: textContent,

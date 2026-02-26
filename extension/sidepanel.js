@@ -61,6 +61,7 @@ let lastFailedMsg = null;
 let responseStartTime = 0;
 let environments = [];  // 环境列表
 let currentEnvId = null;  // 当前选中环境 ID
+let currentUsage = null;  // 当前对话的 token 消耗统计
 
 // 应用主题
 function applyTheme(theme) {
@@ -586,6 +587,14 @@ async function sendMessage() {
         chatArea.appendChild(toolIndicator);
         scrollToBottom();
       }
+      if (event.type === 'usage') {
+        // 保存 token 消耗统计
+        currentUsage = {
+          prompt_tokens: event.prompt_tokens || 0,
+          completion_tokens: event.completion_tokens || 0,
+          total_tokens: event.total_tokens || 0
+        };
+      }
     });
 
     if (typingEl.parentNode) typingEl.remove();
@@ -606,6 +615,19 @@ async function sendMessage() {
     }
 
     chatHistory.push({ role: 'assistant', text: finalText, time: now });
+    
+    // 显示 token 消耗统计
+    const usageIndicator = document.createElement('div');
+    usageIndicator.className = 'message assistant';
+    usageIndicator.innerHTML = `<div class="message-bubble token-stats">
+      <span class="token-icon">📊</span> Token 消耗: 
+      <span class="token-prompt">输入 ${currentUsage?.prompt_tokens || 0}</span> / 
+      <span class="token-completion">输出 ${currentUsage?.completion_tokens || 0}</span> / 
+      <span class="token-total">总计 ${currentUsage?.total_tokens || 0}</span>
+    </div>`;
+    chatArea.appendChild(usageIndicator);
+    scrollToBottom();
+    
     saveChatHistory();
   } catch (e) {
     if (typingEl.parentNode) typingEl.remove();
