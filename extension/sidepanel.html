@@ -10,14 +10,14 @@
   <!-- Header -->
   <div class="header">
     <div class="header-title">
-      <span class="logo material-icon" style="font-size:24px">bolt</span>
+      <span class="logo">⚡</span>
       <span>ZStack AI</span>
-      <span class="version-badge">v1.1</span>
+      <span class="version-badge">v1.0</span>
     </div>
     <div class="header-actions">
-      <button id="btn-export" class="icon-btn" title="导出对话为 Markdown"><span class="material-icon">download</span></button>
-      <button id="btn-clear" class="icon-btn" title="清空对话"><span class="material-icon">delete</span></button>
-      <button id="btn-settings" class="icon-btn" title="设置"><span class="material-icon">settings</span></button>
+      <button id="btn-export" class="icon-btn" title="导出对话为 Markdown">📥</button>
+      <button id="btn-clear" class="icon-btn" title="清空对话">🗑️</button>
+      <button id="btn-settings" class="icon-btn" title="设置">⚙️</button>
     </div>
   </div>
 
@@ -28,7 +28,7 @@
     </select>
     <button id="btn-add-env" class="icon-btn" title="配置云平台">☁️</button>
     <button id="btn-delete-env" class="icon-btn" title="删除环境">✂️</button>
-    <button id="btn-llm-config" class="icon-btn" title="AI模型配置"><span class="material-icon">psychology</span></button>
+    <button id="btn-llm-config" class="icon-btn" title="AI模型配置">🤖</button>
   </div>
 
   <!-- Status bar -->
@@ -37,10 +37,10 @@
     <span id="status-text">未连接</span>
     <span id="status-model" class="status-model"></span>
     <div class="mode-toggle">
-      <button id="btn-mode" class="mode-btn" title="点击切换查询模式"><span class="material-icon">bolt</span> 精简</button>
+      <button id="btn-mode" class="mode-btn" title="点击切换查询模式">⚡ 精简</button>
       <div id="mode-tooltip" class="mode-tooltip hidden">
-        <p><b><span class="material-icon">bolt</span> 精简模式</b>：统计概览 + 前20条预览，省 token，响应快</p>
-        <p><b><span class="material-icon">list_alt</span> 全量模式</b>：分批查询全部记录并完整展示，适合导出或全面分析</p>
+        <p><b>⚡ 精简模式</b>：统计概览 + 前20条预览，省 token，响应快</p>
+        <p><b>📋 全量模式</b>：分批查询全部记录并完整展示，适合导出或全面分析</p>
       </div>
     </div>
   </div>
@@ -49,7 +49,7 @@
   <div id="settings-panel" class="settings-panel hidden">
     <div class="settings-tabs">
       <button class="settings-tab active" data-tab="zstack">☁️ 云平台</button>
-      <button class="settings-tab" data-tab="llm"><span class="material-icon">psychology</span> AI 模型</button>
+      <button class="settings-tab" data-tab="llm">🤖 AI 模型</button>
       <button class="settings-tab" data-tab="theme">🎨 主题</button>
     </div>
     
@@ -129,21 +129,21 @@
   <!-- Chat area -->
   <div id="chat-area" class="chat-area">
     <div class="welcome-msg">
-      <div class="welcome-icon"><span class="material-icon">bolt</span></div>
+      <div class="welcome-icon">⚡</div>
       <h2>ZStack AI 运维助手</h2>
       <p class="welcome-sub">用自然语言管理你的云平台</p>
       <div class="welcome-features">
         <div class="feature-item">📊 查询资源状态</div>
         <div class="feature-item">🚀 创建和管理云主机</div>
-        <div class="feature-item"><span class="material-icon">search</span> ZQL 智能查询</div>
-        <div class="feature-item"><span class="material-icon">list_alt</span> 全量数据导出</div>
+        <div class="feature-item">🔍 ZQL 智能查询</div>
+        <div class="feature-item">📋 全量数据导出</div>
       </div>
       <div class="quick-actions">
-        <button class="quick-btn" data-msg="查看所有云主机"><span class="material-icon">list_alt</span> 查看云主机</button>
+        <button class="quick-btn" data-msg="查看所有云主机">📋 查看云主机</button>
         <button class="quick-btn" data-msg="查看物理主机状态">🖥️ 物理主机</button>
         <button class="quick-btn" data-msg="查看可用镜像">💿 可用镜像</button>
         <button class="quick-btn" data-msg="查看网络列表">🌐 网络列表</button>
-        <button class="quick-btn" data-msg="查看存储状态"><span class="material-icon">storage</span> 存储状态</button>
+        <button class="quick-btn" data-msg="查看存储状态">💾 存储状态</button>
         <button class="quick-btn" data-msg="查看负载均衡">⚖️ 负载均衡</button>
       </div>
     </div>
