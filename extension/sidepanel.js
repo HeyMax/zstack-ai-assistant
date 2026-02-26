@@ -61,7 +61,8 @@ let lastFailedMsg = null;
 let responseStartTime = 0;
 let environments = [];  // 环境列表
 let currentEnvId = null;  // 当前选中环境 ID
-let currentUsage = null;  // 当前对话的 token 消耗统计
+let currentUsage = null;  // 当前任务的 token 消耗
+let sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };  // 会话累计 token 消耗
 
 // 应用主题
 function applyTheme(theme) {

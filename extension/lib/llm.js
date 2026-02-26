@@ -328,7 +328,7 @@ export class LLMEngine {
     };
 
     // Emit usage event with token counts (for streaming, estimate based on message content)
-    const estimatedUsage = this._estimateUsage(content, this.messages);
+    const estimatedUsage = { ...this._estimateUsage(content, this.messages), estimated: true };
     emit('usage', estimatedUsage);
 
     return {
@@ -339,18 +339,38 @@ export class LLMEngine {
   }
 
   // ========== Estimate token usage ==========
-  _estimateUsage(content, messages) {
-    // Rough estimation: ~1 token ≈ 4 chars for Chinese, ~3.5 chars for English
+  _estimateUsage(content, messages, emitLog = false) {
+    // Rough estimation: ~1 token ≈ 2-3 chars for Chinese, ~3-4 chars for English
+    // 使用更准确的估算公式
     const estimateChars = (text) => {
       if (!text) return 0;
       const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
       const otherChars = text.length - chineseChars;
-      return Math.ceil(chineseChars / 4 * 1.3 + otherChars / 3.5);
+      // 中文约 2.5 字符/token，英文约 3.5 字符/token
+      return Math.ceil(chineseChars / 2.5 + otherChars / 3.5);
     };
 
     const promptTokens = messages.reduce((sum, m) => sum + estimateChars(m.content), 0);
     const completionTokens = estimateChars(content);
     const totalTokens = promptTokens + completionTokens;
+
+    // 输出详细日志到控制格，方便排查 token 消耗
+    if (emitLog || true) {
+      console.log('[Token Usage] ===== Token 消耗明细 =====');
+      console.log('[Token Usage] System prompt tokens:', estimateChars(this._systemPrompt()));
+      console.log('[Token Usage] Messages count:', messages.length);
+      let msgIdx = 0;
+      messages.forEach((m, i) => {
+        const len = estimateChars(m.content);
+        console.log(`[Token Usage] Message[${i}] ${m.role}: ${len} tokens, ${m.content.length} chars, preview: ${m.content.substring(0, 100)}...`);
+        msgIdx = i;
+      });
+      console.log('[Token Usage] ----');
+      console.log('[Token Usage] Prompt tokens (估算):', promptTokens);
+      console.log('[Token Usage] Completion tokens (估算):', completionTokens);
+      console.log('[Token Usage] Total tokens (估算):', totalTokens);
+      console.log('[Token Usage] ==========================');
+    }
 
     return {
       prompt_tokens: promptTokens,
@@ -390,7 +410,9 @@ export class LLMEngine {
     })) || null;
 
     // Emit usage from actual API response if available
-    const usage = data.usage || this._estimateUsage(msg.content || '', this.messages);
+    const usage = data.usage 
+      ? { ...data.usage, estimated: false } 
+      : { ...this._estimateUsage(msg.content || '', this.messages), estimated: true };
     emit('usage', usage);
 
     return {
@@ -532,7 +554,7 @@ export class LLMEngine {
     const rawContent = contentBlocks.filter(b => b != null);
 
     // Estimate usage for Anthropic (no streaming usage data)
-    const usage = this._estimateUsage(textContent, this.messages);
+    const usage = { ...this._estimateUsage(textContent, this.messages), estimated: true };
     emit('usage', usage);
 
     return {
