@@ -1,4 +1,5 @@
 import { ZStackClient } from './lib/zstack.js';
+import { ICONS } from './icons.js';
 import { LLMEngine } from './lib/llm.js';
 
 const zstack = new ZStackClient();
@@ -79,6 +80,9 @@ async function init() {
     await loadSettings();
     setupEventListeners();
     setupEnvEventListeners();
+    // Render SVG icons for import/export buttons
+    document.getElementById('icon-export').innerHTML = ICONS.download || '';
+    document.getElementById('icon-import').innerHTML = ICONS.upload || '';
     await loadChatHistory();
     chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
       if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
