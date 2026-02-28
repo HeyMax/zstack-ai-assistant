@@ -103,8 +103,10 @@ async function loadSettings() {
   const theme = data.themeColor || 'system';
   applyTheme(theme);
 
-  // 渲染环境选择器
+  // 从存储加载环境列表
+  environments = data.environments || [];
   renderEnvSelector();
+
 
   // 如果有选中的环境，从环境加载配置；否则从全局配置加载
   const env = currentEnvId !== null ? environments[currentEnvId] : null;
@@ -189,6 +191,10 @@ function setupEventListeners() {
     const theme = document.getElementById('theme-color').value;
     await chrome.storage.local.set({ themeColor: theme });
     applyTheme(theme);
+
+  // 从存储加载环境列表
+  environments = data.environments || [];
+  renderEnvSelector();
     showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 主题已保存`);
     settingsPanel.classList.add('hidden');
   });
@@ -199,9 +205,18 @@ function setupEventListeners() {
       'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
       'environments', 'currentEnvId', 'themeColor', 'queryMode'
     ]);
+    const sensitiveData = {
+      llmApiKey: data.llmApiKey,
+      environments: (data.environments || []).map(e => ({
+        ...e,
+        password: e.password || ''
+      }))
+    };
+    const encrypted = encryptConfig(sensitiveData);
     const config = {
       version: '1.1',
       exportTime: new Date().toISOString(),
+      _encrypted: encrypted,
       llmProvider: data.llmProvider,
       llmBaseUrl: data.llmBaseUrl,
       llmApiKey: data.llmApiKey,
@@ -240,9 +255,9 @@ function setupEventListeners() {
       const settings = {
         llmProvider: config.llmProvider,
         llmBaseUrl: config.llmBaseUrl,
-        llmApiKey: config.llmApiKey,
+        llmApiKey: config._encrypted ? (decryptConfig(config._encrypted) || {}).llmApiKey || config.llmApiKey : config.llmApiKey,
         llmModel: config.llmModel,
-        environments: config.environments,
+        environments: config._encrypted ? (decryptConfig(config._encrypted) || {}).environments || config.environments : config.environments,
         currentEnvId: config.currentEnvId,
         themeColor: config.themeColor,
         queryMode: config.queryMode
@@ -1039,4 +1054,29 @@ function setupEnvEventListeners() {
     document.querySelector('.settings-tab[data-tab="llm"]').classList.add('active');
     document.getElementById('tab-llm').classList.remove('hidden');
   });
+}
+
+// 简单的加密/解密函数（使用固定key，导出时加密敏感信息）
+function encryptConfig(data) {
+  const key = 'zstack-ai-secret-key-v1';
+  const str = JSON.stringify(data);
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  }
+  return btoa(result);
+}
+
+function decryptConfig(encrypted) {
+  const key = 'zstack-ai-secret-key-v1';
+  try {
+    const str = atob(encrypted);
+    let result = '';
+    for (let i = 0; i < str.length; i++) {
+      result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return JSON.parse(result);
+  } catch {
+    return null;
+  }
 }
