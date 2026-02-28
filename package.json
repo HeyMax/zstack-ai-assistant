@@ -1,0 +1,18 @@
+{
+  "name": "zstack-ai-assistant",
+  "version": "1.0.0",
+  "description": "基于大语言模型的 ZStack 云平台智能运维助手，以 Chrome 浏览器扩展形式运行，通过自然语言对话实现云平台全生命周期管理。无需后端部署，即装即用。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
