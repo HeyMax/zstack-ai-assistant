@@ -1,8 +1,10 @@
 import { ZStackClient } from './lib/zstack.js';
+import { ICONS } from './icons.js';
 import { LLMEngine } from './lib/llm.js';
 
 const zstack = new ZStackClient();
 const llm = new LLMEngine();
+let sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
 
 // Markdown renderer
 const md = typeof marked !== 'undefined' ? marked : null;
@@ -79,6 +81,9 @@ async function init() {
     await loadSettings();
     setupEventListeners();
     setupEnvEventListeners();
+    // Render SVG icons for import/export buttons
+    document.getElementById('icon-export').innerHTML = ICONS.download || '';
+    document.getElementById('icon-import').innerHTML = ICONS.upload || '';
     await loadChatHistory();
     chrome.runtime.sendMessage({ type: 'GET_DETECTED_ENDPOINT' }, (res) => {
       if (res?.endpoint && !document.getElementById('zstack-endpoint').value) {
@@ -103,11 +108,14 @@ async function loadSettings() {
   const theme = data.themeColor || 'system';
   applyTheme(theme);
 
-  // 渲染环境选择器
+  // 从存储加载环境列表
+  environments = data.environments || [];
+  currentEnvId = data.currentEnvId !== undefined ? data.currentEnvId : null;
   renderEnvSelector();
 
+
   // 如果有选中的环境，从环境加载配置；否则从全局配置加载
-  const env = currentEnvId !== null ? environments[currentEnvId] : null;
+  const env = (data.currentEnvId !== undefined && data.currentEnvId !== null) ? environments[currentEnvId] : null;
   const zstackEndpoint = env?.endpoint || data.zstackEndpoint || '';
   const zstackAccount = env?.account || data.zstackAccount || 'admin';
   const zstackPassword = env?.password || data.zstackPassword || '';
@@ -189,8 +197,90 @@ function setupEventListeners() {
     const theme = document.getElementById('theme-color').value;
     await chrome.storage.local.set({ themeColor: theme });
     applyTheme(theme);
+
+  // 从存储加载环境列表
+  environments = data.environments || [];
+  renderEnvSelector();
     showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 主题已保存`);
     settingsPanel.classList.add('hidden');
+  });
+
+  // 导出配置
+  document.getElementById('btn-export-config').addEventListener('click', async () => {
+    const data = await chrome.storage.local.get([
+      'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
+      'environments', 'currentEnvId', 'themeColor', 'queryMode'
+    ]);
+    // 敏感信息仅加密存储，不导出明文
+    const sensitiveData = {
+      llmApiKey: data.llmApiKey || '',
+      environments: (data.environments || []).map(e => ({
+        name: e.name,
+        platform: e.platform,
+        endpoint: e.endpoint,
+        account: e.account,
+        password: e.password || ''
+      }))
+    };
+    const encrypted = encryptConfig(sensitiveData);
+    const config = {
+      version: '1.2',
+      exportTime: new Date().toISOString(),
+      _encrypted: encrypted,
+      // 非敏感配置
+      llmProvider: data.llmProvider,
+      llmBaseUrl: data.llmBaseUrl,
+      llmModel: data.llmModel,
+      currentEnvId: data.currentEnvId,
+      themeColor: data.themeColor || 'system',
+      queryMode: data.queryMode || 'compact'
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zstack-ai-config-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导出`);
+  });
+
+  // 导入配置
+  document.getElementById('btn-import-config').addEventListener('click', () => {
+    document.getElementById('import-file').click();
+  });
+
+  document.getElementById('import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const config = JSON.parse(text);
+      if (!config.version) {
+        showError('无效的配置文件格式');
+        return;
+      }
+      // 导入配置
+      // 解密敏感信息（仅从加密字段读取，不再支持明文fallback）
+      const decrypted = config._encrypted ? decryptConfig(config._encrypted) : null;
+      const settings = {
+        llmProvider: config.llmProvider,
+        llmBaseUrl: config.llmBaseUrl,
+        llmApiKey: decrypted?.llmApiKey || '',
+        llmModel: config.llmModel,
+        environments: decrypted?.environments || [],
+        currentEnvId: config.currentEnvId,
+        themeColor: config.themeColor,
+        queryMode: config.queryMode
+      };
+      await chrome.storage.local.set(settings);
+      // 重新加载
+      await loadSettings();
+      showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导入，配置已更新`);
+    } catch (err) {
+      showError(`导入失败: ${err.message}`);
+    }
+    e.target.value = '';
   });
 
   document.getElementById('btn-export').addEventListener('click', exportConversation);
@@ -268,6 +358,8 @@ function setupEventListeners() {
 function clearChat() {
   llm.clearHistory();
   chatHistory = [];
+  currentUsage = null;
+  sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
   chrome.storage.local.remove('chatHistory');
   chatArea.innerHTML = buildWelcomeHTML();
   bindQuickButtons();
@@ -589,12 +681,19 @@ async function sendMessage() {
         scrollToBottom();
       }
       if (event.type === 'usage') {
-        // 保存 token 消耗统计
+        // 保存当前任务的 token 消耗统计
         currentUsage = {
           prompt_tokens: event.prompt_tokens || 0,
           completion_tokens: event.completion_tokens || 0,
-          total_tokens: event.total_tokens || 0
+          total_tokens: event.total_tokens || 0,
+          estimated: event.estimated || false
         };
+        // 累加到会话总量
+        sessionUsage.prompt += currentUsage.prompt_tokens;
+        sessionUsage.completion += currentUsage.completion_tokens;
+        sessionUsage.total += currentUsage.total_tokens;
+        // 如果任意一次是估算的，标记为估算
+        if (event.estimated) sessionUsage.estimated = true;
       }
     });
 
@@ -618,13 +717,14 @@ async function sendMessage() {
     chatHistory.push({ role: 'assistant', text: finalText, time: now });
     
     // 显示 token 消耗统计
+    const estimatedLabel = currentUsage?.estimated ? ' (估算)' : '';
+    const sessionEstimatedLabel = sessionUsage.estimated ? ' (估算)' : '';
     const usageIndicator = document.createElement('div');
     usageIndicator.className = 'message assistant';
     usageIndicator.innerHTML = `<div class="message-bubble token-stats">
       <span class="token-icon">📊</span> Token 消耗: 
-      <span class="token-prompt">输入 ${currentUsage?.prompt_tokens || 0}</span> / 
-      <span class="token-completion">输出 ${currentUsage?.completion_tokens || 0}</span> / 
-      <span class="token-total">总计 ${currentUsage?.total_tokens || 0}</span>
+      本次 ${currentUsage?.total_tokens || 0}${estimatedLabel} / 
+      会话累计 ${sessionUsage.total}${sessionEstimatedLabel}
     </div>`;
     chatArea.appendChild(usageIndicator);
     scrollToBottom();
@@ -820,6 +920,7 @@ async function loadChatHistory() {
     if (!data.chatHistory || data.chatHistory.length === 0) return;
 
     chatHistory = data.chatHistory;
+    sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
     const welcome = chatArea.querySelector('.welcome-msg');
     if (welcome) welcome.remove();
 
@@ -964,4 +1065,29 @@ function setupEnvEventListeners() {
     document.querySelector('.settings-tab[data-tab="llm"]').classList.add('active');
     document.getElementById('tab-llm').classList.remove('hidden');
   });
+}
+
+// 简单的加密/解密函数（使用固定key，导出时加密敏感信息）
+function encryptConfig(data) {
+  const key = 'zstack-ai-secret-key-v1';
+  const str = JSON.stringify(data);
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  }
+  return btoa(result);
+}
+
+function decryptConfig(encrypted) {
+  const key = 'zstack-ai-secret-key-v1';
+  try {
+    const str = atob(encrypted);
+    let result = '';
+    for (let i = 0; i < str.length; i++) {
+      result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return JSON.parse(result);
+  } catch {
+    return null;
+  }
 }

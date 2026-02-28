@@ -18,6 +18,12 @@ export class LLMEngine {
     if (model !== undefined) this.model = model;
     if (zstackClient) this.zstackClient = zstackClient;
     if (queryMode) this.queryMode = queryMode;
+
+    // Validate model is configured
+    if (!this.model) {
+      const defaultModel = LLMEngine.BASE_URLS[this.provider] ? PROVIDER_DEFAULTS[this.provider] : 'gpt-4o-mini';
+      this.model = defaultModel;
+    }
   }
 
   clearHistory() { this.messages = []; }
