@@ -11,5 +11,5 @@ sync_to_github:
   script:
     - >
       cd /repo.git &&
-      git push --mirror https://HeyMax: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@github.com/HeyMax/zstack-ai-assistant.git
+      git push --mirror https://HeyMax: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@github.com/HeyMax/zstack-ai-assistant.git
   when: always
