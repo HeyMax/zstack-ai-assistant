@@ -460,6 +460,7 @@ function updateModelPlaceholder() {
 }
 
 // --- ZStack Connection ---
+console.log("ZSDEBUG: connectZStack called");
 async function connectZStack() {
   const platform = document.getElementById('platform-type').value;
   const envName = document.getElementById('env-name').value || `环境 ${environments.length + 1}`;
