@@ -3,6 +3,7 @@ import { LLMEngine } from './lib/llm.js';
 
 const zstack = new ZStackClient();
 const llm = new LLMEngine();
+let sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
 
 // Markdown renderer
 const md = typeof marked !== 'undefined' ? marked : null;
