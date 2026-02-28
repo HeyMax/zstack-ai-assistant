@@ -109,11 +109,12 @@ async function loadSettings() {
 
   // 从存储加载环境列表
   environments = data.environments || [];
+  currentEnvId = data.currentEnvId !== undefined ? data.currentEnvId : null;
   renderEnvSelector();
 
 
   // 如果有选中的环境，从环境加载配置；否则从全局配置加载
-  const env = currentEnvId !== null ? environments[currentEnvId] : null;
+  const env = (data.currentEnvId !== undefined && data.currentEnvId !== null) ? environments[currentEnvId] : null;
   const zstackEndpoint = env?.endpoint || data.zstackEndpoint || '';
   const zstackAccount = env?.account || data.zstackAccount || 'admin';
   const zstackPassword = env?.password || data.zstackPassword || '';
