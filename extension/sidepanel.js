@@ -205,23 +205,26 @@ function setupEventListeners() {
       'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
       'environments', 'currentEnvId', 'themeColor', 'queryMode'
     ]);
+    // 敏感信息仅加密存储，不导出明文
     const sensitiveData = {
-      llmApiKey: data.llmApiKey,
+      llmApiKey: data.llmApiKey || '',
       environments: (data.environments || []).map(e => ({
-        ...e,
+        name: e.name,
+        platform: e.platform,
+        endpoint: e.endpoint,
+        account: e.account,
         password: e.password || ''
       }))
     };
     const encrypted = encryptConfig(sensitiveData);
     const config = {
-      version: '1.1',
+      version: '1.2',
       exportTime: new Date().toISOString(),
       _encrypted: encrypted,
+      // 非敏感配置
       llmProvider: data.llmProvider,
       llmBaseUrl: data.llmBaseUrl,
-      llmApiKey: data.llmApiKey,
       llmModel: data.llmModel,
-      environments: data.environments || [],
       currentEnvId: data.currentEnvId,
       themeColor: data.themeColor || 'system',
       queryMode: data.queryMode || 'compact'
@@ -252,12 +255,14 @@ function setupEventListeners() {
         return;
       }
       // 导入配置
+      // 解密敏感信息（仅从加密字段读取，不再支持明文fallback）
+      const decrypted = config._encrypted ? decryptConfig(config._encrypted) : null;
       const settings = {
         llmProvider: config.llmProvider,
         llmBaseUrl: config.llmBaseUrl,
-        llmApiKey: config._encrypted ? (decryptConfig(config._encrypted) || {}).llmApiKey || config.llmApiKey : config.llmApiKey,
+        llmApiKey: decrypted?.llmApiKey || '',
         llmModel: config.llmModel,
-        environments: config._encrypted ? (decryptConfig(config._encrypted) || {}).environments || config.environments : config.environments,
+        environments: decrypted?.environments || [],
         currentEnvId: config.currentEnvId,
         themeColor: config.themeColor,
         queryMode: config.queryMode
