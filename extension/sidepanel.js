@@ -274,7 +274,7 @@ function setupEventListeners() {
       await chrome.storage.local.set(settings);
       // 重新加载
       await loadSettings();
-      showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导入，重启插件生效`);
+      showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导入，配置已更新`);
     } catch (err) {
       showError(`导入失败: ${err.message}`);
     }
