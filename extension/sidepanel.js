@@ -716,15 +716,13 @@ async function sendMessage() {
 
     chatHistory.push({ role: 'assistant', text: finalText, time: now });
     
-    // 显示 token 消耗统计
-    const estimatedLabel = currentUsage?.estimated ? ' (估算)' : '';
-    const sessionEstimatedLabel = sessionUsage.estimated ? ' (估算)' : '';
+    // 显示 token 消耗统计（精简版）
+    const isEst = currentUsage?.estimated;
+    const reason = isEst ? (currentUsage?.total_tokens ? ' (流式)' : ' (API无返回)') : '';
     const usageIndicator = document.createElement('div');
     usageIndicator.className = 'message assistant';
     usageIndicator.innerHTML = `<div class="message-bubble token-stats">
-      <span class="token-icon">📊</span> Token 消耗: 
-      本次 ${currentUsage?.total_tokens || 0}${estimatedLabel} / 
-      会话累计 ${sessionUsage.total}${sessionEstimatedLabel}
+      📊 ${currentUsage?.total_tokens || 0}${reason} | 累计: ${sessionUsage.total}
     </div>`;
     chatArea.appendChild(usageIndicator);
     scrollToBottom();
