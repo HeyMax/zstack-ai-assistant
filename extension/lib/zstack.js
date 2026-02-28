@@ -32,7 +32,6 @@ export class ZStackClient {
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-512', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    console.log("ZSDEBUG: raw password length:", password ? password.length : "NULL");
     const hashedPassword = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
     const res = await this._rawPost('/v1/accounts/login', {

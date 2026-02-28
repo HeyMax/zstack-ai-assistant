@@ -460,7 +460,6 @@ function updateModelPlaceholder() {
 }
 
 // --- ZStack Connection ---
-console.log("ZSDEBUG: connectZStack called");
 async function connectZStack() {
   const platform = document.getElementById('platform-type').value;
   const envName = document.getElementById('env-name').value || `环境 ${environments.length + 1}`;
@@ -478,7 +477,6 @@ async function connectZStack() {
   // 先尝试连接，连接成功后再保存
   try {
     zstack.configure(endpoint);
-    console.log("DEBUG: connecting with account=" + account + ", password=" + password);
     await zstack.login(account, password);
     setStatus('connected', `已连接 ${endpoint}`);
     configureLLM();
