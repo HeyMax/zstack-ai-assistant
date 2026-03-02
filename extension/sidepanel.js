@@ -722,7 +722,7 @@ async function sendMessage() {
     const usageIndicator = document.createElement('div');
     usageIndicator.className = 'message assistant';
     usageIndicator.innerHTML = `<div class="message-bubble token-stats">
-      📊 ${currentUsage?.total_tokens || 0}${reason} | 累计: ${sessionUsage.total}
+      📊 Token: ${currentUsage?.total_tokens || 0}${reason} | 累计 Token: ${sessionUsage.total}
     </div>`;
     chatArea.appendChild(usageIndicator);
     scrollToBottom();
