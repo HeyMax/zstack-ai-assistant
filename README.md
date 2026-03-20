@@ -39,17 +39,26 @@
 ├── README.md
 ├── RELEASE.md               # Release Notes
 ├── docs/                    # 文档
-└── extension/               # Chrome 扩展源码
-    ├── manifest.json        # Manifest V3 配置
-    ├── background.js        # Service Worker
-    ├── sidepanel.html       # 侧边栏页面
-    ├── sidepanel.js         # 侧边栏逻辑（720行）
-    ├── sidepanel.css        # 样式（860行）
-    └── lib/
-        ├── llm.js           # LLM 引擎 + Tool Calling（960行）
-        ├── zstack.js         # ZStack API 客户端（254行）
-        ├── marked.min.js    # Markdown 渲染
-        └── purify.min.js    # XSS 防护
+├── extension/               # Chrome 扩展源码
+│   ├── manifest.json        # Manifest V3 配置
+│   ├── background.js        # Service Worker
+│   ├── sidepanel.html       # 侧边栏页面
+│   ├── sidepanel.js         # 侧边栏逻辑
+│   ├── sidepanel.css        # 样式
+│   └── lib/
+│       ├── llm.js           # LLM 引擎 + Tool Calling
+│       ├── mcp-client.js    # MCP 协议客户端
+│       ├── zstack.js        # ZStack API 客户端
+│       ├── marked.min.js    # Markdown 渲染
+│       └── purify.min.js    # XSS 防护
+└── mcp-server/              # ZStack MCP Server（可选）
+    ├── pyproject.toml       # Python 包配置
+    ├── src/zstack_mcp/      # 服务端源码
+    │   ├── server.py        # MCP Server 入口
+    │   ├── api_search.py    # API 搜索引擎
+    │   ├── metric_search.py # 监控指标搜索
+    │   └── zstack_client.py # ZStack API 客户端
+    └── data/                # API 文档和指标元数据
 ```
 
 ## 技术架构
@@ -57,12 +66,14 @@
 ```
 用户 ──→ Chrome Side Panel ──→ LLM Engine ──→ OpenAI/Anthropic/MiniMax API
                                     │
-                                    ▼
-                              ZStack Client ──→ ZStack REST API + ZQL
+                                    ├──→ ZStack Client ──→ ZStack REST API + ZQL
+                                    │
+                                    └──→ MCP Client ──→ zstack-mcp-server ──→ ZStack API + ZWatch 监控
 ```
 
 - 前端：原生 JS + CSS，零框架依赖
 - LLM：OpenAI Chat Completions 兼容格式 + Anthropic Messages API + MiniMax API
+- MCP：通过 Streamable HTTP 连接 zstack-mcp-server，扩展 API 发现和监控数据查询能力
 - 渲染：marked.js + DOMPurify
 
 ## ZStack API 规范
@@ -86,6 +97,59 @@
 | DeepSeek | DeepSeek-Chat | ✅ |
 | 阿里通义 | Qwen-Plus / Qwen-Max | ✅ |
 | MiniMax | MiniMax-M2.5 | ✅ |
+
+## 对接 ZStack MCP Server（可选）
+
+启用 MCP Server 后，AI 助手将获得额外能力：
+- **API 智能搜索** — 不确定 API 时自动从 2000+ ZStack API 中查找
+- **API 参数查阅** — 自动获取完整参数说明，减少调用错误
+- **监控数据查询** — CPU/内存/网络使用率排名（Top N）
+- **监控趋势分析** — 历史监控曲线数据
+
+### 1. 启动 MCP Server
+
+MCP Server 源码位于 `mcp-server/` 目录。
+
+```bash
+# 安装依赖（推荐使用 uv）
+cd mcp-server
+uv venv && source .venv/bin/activate
+uv pip install -e .
+
+# 启动（Streamable HTTP 模式，供 Chrome 扩展连接）
+ZSTACK_API_URL="http://your-zstack-mn:8080" \
+ZSTACK_ACCOUNT="admin" \
+ZSTACK_PASSWORD="your-password" \
+zstack-mcp --transport streamable-http --host 0.0.0.0 --port 8000
+```
+
+环境变量说明：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `ZSTACK_API_URL` | ZStack MN API 地址 | `http://localhost:8080` |
+| `ZSTACK_ACCOUNT` | 登录账户 | `admin` |
+| `ZSTACK_PASSWORD` | 登录密码 | - |
+| `ZSTACK_SESSION_ID` | 直接传入 Session（优先级高于账号密码） | - |
+| `ZSTACK_ALLOW_ALL_API` | 是否允许写操作（创建/删除等） | `false` |
+
+### 2. 在扩展中启用 MCP
+
+1. 打开设置面板 → **MCP** 标签页
+2. 填入 Server 地址：`http://localhost:8000`（或远程地址）
+3. 点击"测试连接"，连接成功后自动启用
+4. 状态栏会显示 `MCP ✅`
+
+### 3. MCP 提供的 6 个工具
+
+| 工具 | 说明 | 典型场景 |
+|------|------|---------|
+| `search_api` | 关键词搜索 ZStack API | "帮我找快照相关的 API" |
+| `describe_api` | 查看 API 详细参数 | 执行操作前确认参数格式 |
+| `execute_api` | 通过 MCP 代理执行 API | 直连工具不支持的高级 API |
+| `search_metric` | 搜索监控指标 | "有哪些 CPU 相关的指标" |
+| `get_metric_data` | 获取时序监控数据 | 某台 VM 的 CPU 历史曲线 |
+| `get_metric_summary` | 获取 TopN 聚合排名 | "CPU 使用率最高的 10 台 VM" |
 
 ## 详细信息
 
