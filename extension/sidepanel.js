@@ -1,16 +1,26 @@
 import { ZStackClient } from './lib/zstack.js';
 import { ICONS } from './icons.js';
 import { LLMEngine } from './lib/llm.js';
+import { MCPClient } from './lib/mcp-client.js';
 
 const zstack = new ZStackClient();
 const llm = new LLMEngine();
+const mcpClient = new MCPClient();
 let sessionUsage = { prompt: 0, completion: 0, total: 0, estimated: false };
 
 // Markdown renderer
 const md = typeof marked !== 'undefined' ? marked : null;
 if (md) md.setOptions({ breaks: true, gfm: true });
 
+function stripThinkTags(text) {
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<thought>[\s\S]*?<\/thought>/gi, '');
+  text = text.replace(/<think>[\s\S]*$/gi, '').replace(/<thought>[\s\S]*$/gi, '');
+  return text.trim();
+}
+
 function renderMarkdown(text) {
+  if (!text) return '';
+  text = stripThinkTags(text);
   if (!text) return '';
   if (md) {
     const raw = md.parse(text);
@@ -81,6 +91,7 @@ async function init() {
     await loadSettings();
     setupEventListeners();
     setupEnvEventListeners();
+    setupMCPEventListeners();
     // Render SVG icons for import/export buttons
     document.getElementById('icon-export').innerHTML = ICONS.download || '';
     document.getElementById('icon-import').innerHTML = ICONS.upload || '';
@@ -101,7 +112,8 @@ async function loadSettings() {
     'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
     'initialized', 'queryMode',
     'environments', 'currentEnvId',
-    'themeColor'
+    'themeColor',
+    'mcpEnabled', 'mcpServerUrl'
   ]);
 
   // 加载主题
@@ -170,6 +182,15 @@ async function loadSettings() {
   }
   if (data.llmApiKey) configureLLM();
 
+  // MCP settings
+  const mcpEnabled = data.mcpEnabled || false;
+  const mcpServerUrl = data.mcpServerUrl || 'http://localhost:8000';
+  const mcpEnabledEl = document.getElementById('mcp-enabled');
+  const mcpUrlEl = document.getElementById('mcp-server-url');
+  if (mcpEnabledEl) mcpEnabledEl.checked = mcpEnabled;
+  if (mcpUrlEl) mcpUrlEl.value = mcpServerUrl;
+  applyMcpState(mcpEnabled, mcpServerUrl);
+
   // Show setup guide if not configured
   checkSetupGuide();
 }
@@ -209,7 +230,8 @@ function setupEventListeners() {
   document.getElementById('btn-export-config').addEventListener('click', async () => {
     const data = await chrome.storage.local.get([
       'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
-      'environments', 'currentEnvId', 'themeColor', 'queryMode'
+      'environments', 'currentEnvId', 'themeColor', 'queryMode',
+      'mcpEnabled', 'mcpServerUrl'
     ]);
     // 敏感信息仅加密存储，不导出明文
     const sensitiveData = {
@@ -233,7 +255,9 @@ function setupEventListeners() {
       llmModel: data.llmModel,
       currentEnvId: data.currentEnvId,
       themeColor: data.themeColor || 'system',
-      queryMode: data.queryMode || 'compact'
+      queryMode: data.queryMode || 'compact',
+      mcpEnabled: data.mcpEnabled || false,
+      mcpServerUrl: data.mcpServerUrl || ''
     };
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -271,7 +295,9 @@ function setupEventListeners() {
         environments: decrypted?.environments || [],
         currentEnvId: config.currentEnvId,
         themeColor: config.themeColor,
-        queryMode: config.queryMode
+        queryMode: config.queryMode,
+        mcpEnabled: config.mcpEnabled || false,
+        mcpServerUrl: config.mcpServerUrl || ''
       };
       await chrome.storage.local.set(settings);
       // 重新加载
@@ -336,8 +362,12 @@ function setupEventListeners() {
     btnSend.disabled = !input.value.trim() || isProcessing;
   });
 
+  let isComposing = false;
+  input.addEventListener('compositionstart', () => { isComposing = true; });
+  input.addEventListener('compositionend', () => { isComposing = false; });
+
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing && !e.isComposing) {
       e.preventDefault();
       if (!btnSend.disabled) sendMessage();
     }
@@ -547,7 +577,7 @@ function configureLLM() {
   const modelInput = document.getElementById('llm-model').value.trim();
   const model = (modelSelect === '__custom__' ? modelInput : modelSelect) || PROVIDER_DEFAULTS[provider];
 
-  llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack, queryMode });
+  llm.configure({ apiKey, baseUrl, provider, model, zstackClient: zstack, queryMode, mcpClient });
 
   if (statusModel) statusModel.textContent = model ? `· ${model}` : '';
 }
@@ -564,6 +594,60 @@ async function saveLLMSettings() {
   configureLLM();
   settingsPanel.classList.add('hidden');
   checkSetupGuide();
+}
+
+// --- MCP Settings ---
+function applyMcpState(enabled, url) {
+  mcpClient.serverUrl = url;
+  mcpClient.enabled = enabled;
+  llm.configure({ mcpClient });
+  const indicator = document.getElementById('mcp-indicator');
+  if (indicator) {
+    indicator.textContent = enabled ? 'MCP ✅' : 'MCP ❌';
+    indicator.className = 'mcp-indicator ' + (enabled ? 'mcp-on' : 'mcp-off');
+  }
+}
+
+function setupMCPEventListeners() {
+  const btnTestMcp = document.getElementById('btn-test-mcp');
+  const mcpStatus = document.getElementById('mcp-status');
+  const mcpEnabledEl = document.getElementById('mcp-enabled');
+  const mcpUrlEl = document.getElementById('mcp-server-url');
+
+  mcpEnabledEl?.addEventListener('change', async () => {
+    const enabled = mcpEnabledEl.checked;
+    const url = mcpUrlEl.value.trim() || 'http://localhost:8000';
+    await chrome.storage.local.set({ mcpEnabled: enabled, mcpServerUrl: url });
+    applyMcpState(enabled, url);
+    if (mcpStatus) {
+      mcpStatus.textContent = enabled ? 'MCP 已启用' : 'MCP 已禁用';
+      mcpStatus.style.color = enabled ? 'var(--color-success, #22c55e)' : 'var(--text-secondary)';
+    }
+  });
+
+  mcpUrlEl?.addEventListener('change', async () => {
+    const enabled = mcpEnabledEl?.checked || false;
+    const url = mcpUrlEl.value.trim() || 'http://localhost:8000';
+    await chrome.storage.local.set({ mcpServerUrl: url });
+    applyMcpState(enabled, url);
+  });
+
+  btnTestMcp?.addEventListener('click', async () => {
+    const url = mcpUrlEl.value.trim() || 'http://localhost:8000';
+    mcpStatus.textContent = '正在测试连接...';
+    mcpStatus.style.color = '';
+    const testClient = new MCPClient(url);
+    const result = await testClient.testConnection();
+    mcpStatus.textContent = result.message;
+    mcpStatus.style.color = result.ok ? 'var(--color-success, #22c55e)' : 'var(--color-error, #ef4444)';
+    if (result.ok && !mcpEnabledEl.checked) {
+      mcpEnabledEl.checked = true;
+      const enabled = true;
+      await chrome.storage.local.set({ mcpEnabled: enabled, mcpServerUrl: url });
+      applyMcpState(enabled, url);
+      mcpStatus.textContent += ' — 已自动启用';
+    }
+  });
 }
 
 function setStopButtonVisible(visible) {
