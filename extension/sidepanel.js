@@ -312,6 +312,10 @@ function setupEventListeners() {
     btnStop.addEventListener('click', () => {
       llm.abort();
       setStopButtonVisible(false);
+      isProcessing = false;
+      input.disabled = false;
+      input.classList.remove('input-disabled');
+      btnSend.disabled = !input.value.trim();
     });
   }
 
@@ -812,31 +816,42 @@ async function sendMessage() {
     if (typingEl.parentNode) typingEl.remove();
     if (toolIndicator?.parentNode) toolIndicator.remove();
 
-    // 更友好的错误提示
-    let errorMsg = e.message || '未知错误';
-    if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('net::ERR')) {
-      errorMsg = '网络连接失败，请检查 ZStack 服务是否可用';
-    } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
-      errorMsg = '请求超时，请稍后重试';
-    } else if (errorMsg.includes('session') || errorMsg.includes('401') || errorMsg.includes('login') || errorMsg.includes('OAuth')) {
-      showError('会话已过期，正在重新连接...');
-      try {
-        await connectZStack();
-        showError('已重连，请重新发送');
-        isProcessing = false;
-        setStopButtonVisible(false);
-        input.disabled = false;
-        input.classList.remove('input-disabled');
-        btnSend.disabled = !input.value.trim();
-        scrollToBottom();
-        return;
-      } catch (re) {
-        errorMsg = '会话过期，重连失败: ' + re.message;
+    if (e.name === 'AbortError' || (e.message && e.message.includes('已停止'))) {
+      // 用户主动停止 — 保存已有内容，不显示错误
+      const partial = accumulatedText || '已停止生成。';
+      if (!assistantBubble && partial.trim()) {
+        assistantBubble = appendMessage('assistant', partial, now);
+      } else if (assistantBubble) {
+        const bubble = assistantBubble.querySelector('.message-bubble');
+        bubble.innerHTML = renderMarkdown(partial);
       }
+      chatHistory.push({ role: 'assistant', text: stripThinkTags(partial), time: now });
+      saveChatHistory();
+    } else {
+      let errorMsg = e.message || '未知错误';
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('net::ERR')) {
+        errorMsg = '网络连接失败，请检查 ZStack 服务是否可用';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = '请求超时，请稍后重试';
+      } else if (errorMsg.includes('session') || errorMsg.includes('401') || errorMsg.includes('login') || errorMsg.includes('OAuth')) {
+        showError('会话已过期，正在重新连接...');
+        try {
+          await connectZStack();
+          showError('已重连，请重新发送');
+          isProcessing = false;
+          setStopButtonVisible(false);
+          input.disabled = false;
+          input.classList.remove('input-disabled');
+          btnSend.disabled = !input.value.trim();
+          scrollToBottom();
+          return;
+        } catch (re) {
+          errorMsg = '会话过期，重连失败: ' + re.message;
+        }
+      }
+      lastFailedMsg = text;
+      showErrorWithRetry(errorMsg);
     }
-
-    lastFailedMsg = text;
-    showErrorWithRetry(errorMsg);
   }
 
   isProcessing = false;
@@ -953,11 +968,14 @@ function exportConversation() {
     return;
   }
   const lines = chatHistory.map(m => {
-    const prefix = m.role === 'user' ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg> 用户' : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg> 助手';
+    const prefix = m.role === 'user' ? '🧑 用户' : '🤖 助手';
     const time = m.time ? ` [${m.time}]` : '';
-    return `### ${prefix}${time}\n\n${m.text}\n`;
+    const body = stripThinkTags(m.text || '').trim();
+    return `### ${prefix}${time}\n\n${body}\n`;
   });
-  const content = `# ZStack AI 对话记录\n\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n${lines.join('\n---\n\n')}`;
+  const envInfo = document.getElementById('zstack-endpoint')?.value?.trim();
+  const header = `# ZStack AI 对话记录\n\n> 导出时间: ${new Date().toLocaleString('zh-CN')}${envInfo ? '  \n> 环境: ' + envInfo : ''}\n`;
+  const content = `${header}\n---\n\n${lines.join('\n---\n\n')}`;
   const blob = new Blob([content], { type: 'text/markdown' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

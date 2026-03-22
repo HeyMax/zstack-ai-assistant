@@ -80,23 +80,25 @@ export class LLMEngine {
   static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen', 'minimax']);
 
   async chat(userMessage, onEvent) {
+    const msgSnapshot = this.messages.length;
     this.messages.push({ role: 'user', content: userMessage });
     const emit = (type, data) => { if (onEvent) onEvent({ type, ...data }); };
 
     this._abortController = new AbortController();
     const signal = this._abortController.signal;
 
-    const maxRounds = 100;
+    const maxRounds = 20;
     const startTime = Date.now();
-    const timeoutMs = 5 * 60 * 1000;
+    const timeoutMs = 8 * 60 * 1000;
 
     try {
       for (let i = 0; i < maxRounds; i++) {
         if (signal.aborted) {
+          this.messages.length = msgSnapshot;
           return '已停止生成。';
         }
         if (Date.now() - startTime > timeoutMs) {
-          return '操作超时(5分钟)，部分操作可能已完成。请查看云平台确认状态。';
+          return '操作超时(8分钟)，部分操作可能已完成。请查看云平台确认状态。';
         }
 
         const isAnthropic = this.provider === 'anthropic' && !LLMEngine.OPENAI_COMPAT.has(this.provider);
@@ -105,6 +107,7 @@ export class LLMEngine {
           : await this._callOpenAIStream(emit, signal);
 
         if (signal.aborted) {
+          this.messages.length = msgSnapshot;
           return '已停止生成。';
         }
 
@@ -182,6 +185,7 @@ export class LLMEngine {
       return '操作轮次已达上限，部分操作可能已完成。请查看云平台确认状态。';
     } catch (e) {
       if (e.name === 'AbortError') {
+        this.messages.length = msgSnapshot;
         return '已停止生成。';
       }
       throw e;
@@ -230,9 +234,10 @@ export class LLMEngine {
   // Build request body with provider-specific adjustments
   _buildOpenAIBody(stream = true) {
     const supportsTools = !LLMEngine.NO_TOOL_MODELS.has(this.model);
+    const compressed = this._compressMessages([...this.messages]);
     const body = {
       model: this.model,
-      messages: [{ role: 'system', content: this._systemPrompt() }, ...this.messages],
+      messages: [{ role: 'system', content: this._systemPrompt() }, ...compressed],
       stream
     };
 
@@ -384,9 +389,9 @@ export class LLMEngine {
     // 使用更准确的估算公式
     const estimateChars = (text) => {
       if (!text) return 0;
+      if (typeof text !== 'string') text = JSON.stringify(text) || '';
       const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
       const otherChars = text.length - chineseChars;
-      // 中文约 2.5 字符/token，英文约 3.5 字符/token
       return Math.ceil(chineseChars / 2.5 + otherChars / 3.5);
     };
 
@@ -394,22 +399,8 @@ export class LLMEngine {
     const completionTokens = estimateChars(content);
     const totalTokens = promptTokens + completionTokens;
 
-    // 输出详细日志到控制格，方便排查 token 消耗
-    if (emitLog || true) {
-      console.log('[Token Usage] ===== Token 消耗明细 =====');
-      console.log('[Token Usage] System prompt tokens:', estimateChars(this._systemPrompt()));
-      console.log('[Token Usage] Messages count:', messages.length);
-      let msgIdx = 0;
-      messages.forEach((m, i) => {
-        const len = estimateChars(m.content);
-        console.log(`[Token Usage] Message[${i}] ${m.role}: ${len} tokens, ${m.content.length} chars, preview: ${m.content.substring(0, 100)}...`);
-        msgIdx = i;
-      });
-      console.log('[Token Usage] ----');
-      console.log('[Token Usage] Prompt tokens (估算):', promptTokens);
-      console.log('[Token Usage] Completion tokens (估算):', completionTokens);
-      console.log('[Token Usage] Total tokens (估算):', totalTokens);
-      console.log('[Token Usage] ==========================');
+    if (emitLog) {
+      console.log('[Token Usage] Prompt:', promptTokens, 'Completion:', completionTokens, 'Total:', totalTokens, 'Msgs:', messages.length);
     }
 
     return {
@@ -417,6 +408,35 @@ export class LLMEngine {
       completion_tokens: completionTokens,
       total_tokens: totalTokens
     };
+  }
+
+  _compressMessages(msgs) {
+    const MAX_TOKENS = 60000;
+    const KEEP_RECENT = 10;
+    const estimateChars = (text) => {
+      if (!text) return 0;
+      if (typeof text !== 'string') text = JSON.stringify(text) || '';
+      return Math.ceil(text.length / 3);
+    };
+    const totalTokens = () => msgs.reduce((s, m) => s + estimateChars(m.content), 0);
+
+    if (totalTokens() <= MAX_TOKENS) return msgs;
+
+    for (let i = 0; i < msgs.length - KEEP_RECENT; i++) {
+      const m = msgs[i];
+      const c = typeof m.content === 'string' ? m.content : JSON.stringify(m.content) || '';
+      if (m.role === 'tool' && c.length > 500) {
+        msgs[i] = { ...m, content: c.slice(0, 300) + '...[截断]' };
+      } else if (m.role === 'assistant' && c.length > 1000) {
+        msgs[i] = { ...m, content: c.slice(0, 500) + '...[截断]' };
+      }
+    }
+
+    while (totalTokens() > MAX_TOKENS && msgs.length > KEEP_RECENT) {
+      msgs.shift();
+    }
+
+    return msgs;
   }
 
   // ========== OpenAI Non-Streaming Fallback ==========
@@ -479,9 +499,9 @@ export class LLMEngine {
       body: JSON.stringify({
         model: this.model,
         system: this._systemPrompt(),
-        messages: this.messages,
+        messages: this._compressMessages([...this.messages]),
         tools: this._getToolsAnthropic(),
-        max_tokens: 16384,  // Anthropic 必填参数，给足够大的值
+        max_tokens: 16384,
         stream: true
       }),
       signal
