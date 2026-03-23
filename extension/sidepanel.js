@@ -224,12 +224,18 @@ function setupEventListeners() {
 
   // 导出配置
   document.getElementById('btn-export-config').addEventListener('click', async () => {
+    const password = prompt('请设置导出密码（用于加密敏感信息，导入时需要）：');
+    if (!password) return;
+    if (password.length < 4) {
+      showError('密码至少 4 个字符');
+      return;
+    }
     const data = await chrome.storage.local.get([
       'llmProvider', 'llmBaseUrl', 'llmApiKey', 'llmModel',
       'environments', 'currentEnvId', 'themeColor', 'queryMode',
       'mcpEnabled', 'mcpServerUrl'
     ]);
-    // 敏感信息仅加密存储，不导出明文
+    // 敏感信息使用 AES-GCM 加密
     const sensitiveData = {
       llmApiKey: data.llmApiKey || '',
       environments: (data.environments || []).map(e => ({
@@ -240,9 +246,10 @@ function setupEventListeners() {
         password: e.password || ''
       }))
     };
-    const encrypted = encryptConfig(sensitiveData);
+    const encrypted = await encryptConfig(sensitiveData, password);
     const config = {
-      version: '1.2',
+      version: '1.3',
+      encryption: 'aes-256-gcm',
       exportTime: new Date().toISOString(),
       _encrypted: encrypted,
       // 非敏感配置
@@ -262,7 +269,7 @@ function setupEventListeners() {
     a.download = `zstack-ai-config-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导出`);
+    showMessage(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> 配置已导出（AES-256-GCM 加密）`);
   });
 
   // 导入配置
@@ -280,9 +287,24 @@ function setupEventListeners() {
         showError('无效的配置文件格式');
         return;
       }
-      // 导入配置
-      // 解密敏感信息（仅从加密字段读取，不再支持明文fallback）
-      const decrypted = config._encrypted ? decryptConfig(config._encrypted) : null;
+      // 解密敏感信息
+      let decrypted = null;
+      if (config._encrypted) {
+        if (config.encryption === 'aes-256-gcm') {
+          // v1.3+ AES-GCM 加密，需要密码
+          const password = prompt('请输入导出时设置的密码：');
+          if (!password) return;
+          decrypted = await decryptConfig(config._encrypted, password);
+          if (!decrypted) {
+            showError('密码错误，无法解密配置');
+            e.target.value = '';
+            return;
+          }
+        } else {
+          // v1.2 旧版 XOR 加密，向后兼容
+          decrypted = legacyDecryptConfig(config._encrypted);
+        }
+      }
       const settings = {
         llmProvider: config.llmProvider,
         llmBaseUrl: config.llmBaseUrl,
@@ -1163,18 +1185,60 @@ function setupEnvEventListeners() {
   });
 }
 
-// 简单的加密/解密函数（使用固定key，导出时加密敏感信息）
-function encryptConfig(data) {
-  const key = 'zstack-ai-secret-key-v1';
-  const str = JSON.stringify(data);
-  let result = '';
-  for (let i = 0; i < str.length; i++) {
-    result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-  }
-  return btoa(result);
+// AES-GCM 加密/解密（使用用户密码 + PBKDF2 派生密钥）
+// 导出文件中只包含: salt + iv + ciphertext，无密钥信息
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
 }
 
-function decryptConfig(encrypted) {
+async function encryptConfig(data, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt);
+  const enc = new TextEncoder();
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    enc.encode(JSON.stringify(data))
+  );
+  // Pack: salt(16) + iv(12) + ciphertext
+  const buf = new Uint8Array(salt.length + iv.length + ciphertext.byteLength);
+  buf.set(salt, 0);
+  buf.set(iv, salt.length);
+  buf.set(new Uint8Array(ciphertext), salt.length + iv.length);
+  return btoa(String.fromCharCode(...buf));
+}
+
+async function decryptConfig(encrypted, password) {
+  try {
+    const raw = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const salt = raw.slice(0, 16);
+    const iv = raw.slice(16, 28);
+    const ciphertext = raw.slice(28);
+    const key = await deriveKey(password, salt);
+    const plainBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    return JSON.parse(new TextDecoder().decode(plainBuf));
+  } catch {
+    return null;
+  }
+}
+
+// 旧版 v1.2 XOR 解密（向后兼容，仅用于导入旧配置文件）
+function legacyDecryptConfig(encrypted) {
   const key = 'zstack-ai-secret-key-v1';
   try {
     const str = atob(encrypted);

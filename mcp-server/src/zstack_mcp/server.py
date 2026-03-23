@@ -26,6 +26,7 @@ from typing import Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 
 from .api_search import ApiSearchIndex
+from .doc_search import DocSearchEngine
 from .metric_search import MetricSearchIndex
 from .zstack_client import ZStackClient, ZStackApiError
 
@@ -62,6 +63,7 @@ def is_write_api_allowed() -> bool:
 # 全局索引和客户端
 _api_index: Optional[ApiSearchIndex] = None
 _metric_index: Optional[MetricSearchIndex] = None
+_doc_engine: Optional[DocSearchEngine] = None
 _zstack_client: Optional[ZStackClient] = None
 
 
@@ -111,6 +113,27 @@ def get_metric_index() -> MetricSearchIndex:
         else:
             raise FileNotFoundError(f"找不到监控指标文件: {metric_path}")
     return _metric_index
+
+
+def get_doc_engine() -> DocSearchEngine:
+    """获取文档搜索引擎（懒加载）"""
+    global _doc_engine
+    if _doc_engine is None:
+        _doc_engine = DocSearchEngine()
+        data_dir = get_data_dir()
+        # 优先加载预构建索引
+        index_path = data_dir / "docs" / "index.json"
+        if index_path.exists():
+            count = _doc_engine.load_from_index(index_path)
+        else:
+            # 回退到扫描 Markdown 文档目录
+            docs_dir = data_dir / "docs"
+            count = _doc_engine.load_from_directory(docs_dir)
+        if count > 0:
+            print(f"[DocSearch] 已加载 {count} 个文档片段")
+        else:
+            print(f"[DocSearch] 未找到文档，请在 {data_dir / 'docs'} 下放置 .md 文件或 index.json")
+    return _doc_engine
 
 
 def get_zstack_client() -> ZStackClient:
@@ -1198,6 +1221,73 @@ async def get_metric_summary(
             "success": False,
             "error": str(e),
         }, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def search_docs(
+    keywords: list[str],
+    category: str = None,
+    limit: int = 5,
+) -> str:
+    """
+    搜索 ZStack 官方文档和运维知识库。
+
+    当遇到以下情况时使用此工具：
+    - 需要解释 ZStack 概念、功能或架构
+    - 查找操作指南或最佳实践
+    - 排查故障时查找已知问题和解决方案
+    - 不确定某个功能的正确用法
+
+    参数:
+        keywords: 搜索关键词列表，如 ["主存储", "扩容"] 或 ["VPC", "路由", "配置"]
+        category: 按分类过滤（可选）：guide / troubleshooting / api-reference / best-practice / faq / deployment / architecture
+        limit: 返回数量上限，默认 5
+
+    返回匹配的文档片段，按相关度排序，包含标题、内容摘要和来源。
+    """
+    try:
+        engine = get_doc_engine()
+        query = " ".join(keywords)
+        results = engine.search(query, category=category, limit=limit)
+
+        if not results:
+            stats = engine.get_stats()
+            if stats['total_docs'] == 0:
+                return json.dumps({
+                    "results": [],
+                    "message": "知识库为空。请在 data/docs/ 目录下放置 .md 文档文件或 index.json 索引文件。",
+                    "hint": "可运行 scripts/build_doc_index.py 构建索引。"
+                }, ensure_ascii=False, indent=2)
+            return json.dumps({
+                "results": [],
+                "message": f"未找到与 '{query}' 匹配的文档（知识库共 {stats['total_docs']} 条记录）"
+            }, ensure_ascii=False, indent=2)
+
+        return json.dumps({
+            "results": results,
+            "total_found": len(results),
+            "query": query
+        }, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        return json.dumps({
+            "error": str(e),
+            "hint": "请确保 data/docs/ 目录存在且包含文档"
+        }, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def get_doc_stats() -> str:
+    """
+    获取知识库统计信息：文档数量、分类列表、索引状态。
+    用于了解知识库覆盖范围。
+    """
+    try:
+        engine = get_doc_engine()
+        stats = engine.get_stats()
+        return json.dumps(stats, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False, indent=2)
 
 
 def _normalize_transport(value: Optional[str]) -> str:

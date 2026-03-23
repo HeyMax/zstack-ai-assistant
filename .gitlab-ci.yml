@@ -1,4 +1,9 @@
 # GitLab CI: 自动同步到 GitHub
+#
+# 需要在 GitLab Settings > CI/CD > Variables 中配置：
+#   GITHUB_USER     - GitHub 用户名
+#   GITHUB_TOKEN    - GitHub Personal Access Token (masked + protected)
+#
 sync_to_github:
   image: alpine:latest
   only:
@@ -11,5 +16,5 @@ sync_to_github:
   script:
     - >
       cd /repo.git &&
-      git push --mirror https://HeyMax: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@github.com/HeyMax/zstack-ai-assistant.git
+      git push --mirror https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/HeyMax/zstack-ai-assistant.git
   when: always

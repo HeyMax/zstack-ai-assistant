@@ -1,4 +1,7 @@
 // LLM Engine with ZStack Full API Coverage + Streaming Support
+import { PlaybookEngine } from './playbooks.js';
+import { WorkflowEngine } from './workflow-engine.js';
+
 export class LLMEngine {
   constructor() {
     this.apiKey = '';
@@ -9,6 +12,8 @@ export class LLMEngine {
     this.zstackClient = null;
     this.queryMode = 'compact';
     this._abortController = null;
+    this.playbookEngine = new PlaybookEngine();
+    this.workflowEngine = new WorkflowEngine();
   }
 
   configure({ apiKey, baseUrl, provider, model, zstackClient, queryMode, mcpClient }) {
@@ -40,7 +45,8 @@ export class LLMEngine {
       ? QUERY_MODE_FULL
       : QUERY_MODE_COMPACT;
     const mcpAddon = this.mcpClient?.enabled ? MCP_PROMPT_ENABLED : MCP_PROMPT_DISABLED;
-    return SYSTEM_PROMPT_BASE + '\n' + modeInstructions + '\n' + mcpAddon;
+    const playbookAddon = this.playbookEngine.generatePromptAddon();
+    return SYSTEM_PROMPT_BASE + '\n' + modeInstructions + '\n' + mcpAddon + '\n' + playbookAddon;
   }
 
   _getTools() {
@@ -628,10 +634,40 @@ export class LLMEngine {
 
   static MCP_TOOLS = new Set([
     'search_api', 'describe_api', 'execute_api',
-    'search_metric', 'get_metric_data', 'get_metric_summary'
+    'search_metric', 'get_metric_data', 'get_metric_summary',
+    'search_docs', 'get_doc_stats'
   ]);
 
   async _executeTool(name, args) {
+    // Workflow tools
+    if (name === 'list_workflows') {
+      return { workflows: this.workflowEngine.list() };
+    }
+    if (name === 'describe_workflow') {
+      const wf = this.workflowEngine.get(args.workflow_id);
+      if (!wf) return { error: `未找到工作流: ${args.workflow_id}` };
+      return {
+        id: wf.id, name: wf.name, description: wf.description,
+        parameters: wf.parameters,
+        steps: wf.steps.map(s => ({
+          id: s.id, action: s.action, description: s.id,
+          parallel: s.parallel?.map(p => p.id),
+          loop: s.loop, condition: s.condition
+        }))
+      };
+    }
+    if (name === 'execute_workflow') {
+      try {
+        const result = await this.workflowEngine.execute(
+          args.workflow_id, args.params || {},
+          { zstackClient: this.zstackClient, mcpClient: this.mcpClient }
+        );
+        return result;
+      } catch (e) {
+        return { error: `工作流执行失败: ${e.message}` };
+      }
+    }
+
     if (LLMEngine.MCP_TOOLS.has(name)) {
       if (!this.mcpClient?.enabled) return { error: 'MCP Server 未启用，请在设置中开启并配置 MCP Server 地址' };
       try {
@@ -648,7 +684,7 @@ export class LLMEngine {
       const fixPath = (p) => p && !p.startsWith('v1/') ? `v1/${p}` : p;
 
       switch (name) {
-                case 'zstack_query':
+        case 'zstack_query':
           return await cli.query(fixPath(args.resource_path), args.conditions || [], args.limit || 100, args.start || 0, args.sort_by, args.sort_direction);
         case 'zstack_get':
           return await cli.get(fixPath(args.resource_path), args.uuid);
@@ -961,6 +997,13 @@ const MCP_PROMPT_ENABLED = `
 3. 不确定 API → search_api + describe_api 先查再做
 4. 直连工具报错 → execute_api 代理执行
 5. 两类问题并存 → 并行调用（如"有多少 VM + CPU 最高的"→ 同时调 zstack_zql 和 get_metric_summary）
+
+### 知识库查询（search_docs）
+当需要解释 ZStack 概念、查找操作指南、排查故障方案、或回答最佳实践问题时，**先用 search_docs 查阅知识库**：
+- 遇到用户问"怎么做XX"类的操作指南问题 → search_docs 查找指南
+- 遇到故障排查场景 → search_docs 查找 troubleshooting 类文档
+- 引用文档内容时注明来源
+- 文档内容与 API 实际行为冲突时，以 API 为准
 
 ### 专业行为准则
 - **遇到不确定的操作，查了再做**，不要凭猜测执行 API
@@ -1378,6 +1421,69 @@ const TOOLS = [
           resolve_resource: { type: 'string', enum: ['vm', 'host'], description: '自动解析资源名称（必传）' }
         },
         required: ['namespace', 'metric_name', 'label_key']
+      }
+    }
+  },
+  // ========== Knowledge Base Tools ==========
+  {
+    type: 'function',
+    function: {
+      name: 'search_docs',
+      description: 'MCP：搜索 ZStack 官方文档和运维知识库。遇到概念解释、操作指南、故障排查、最佳实践类问题时使用。返回匹配的文档片段。',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: { type: 'array', items: { type: 'string' }, description: '搜索关键词，如 ["主存储", "扩容"] 或 ["VPC", "路由"]' },
+          category: { type: 'string', description: '按分类过滤：guide / troubleshooting / api-reference / best-practice / faq / deployment / architecture（可选）' },
+          limit: { type: 'integer', description: '返回数量上限，默认 5' }
+        },
+        required: ['keywords']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_doc_stats',
+      description: 'MCP：获取知识库统计信息（文档数量、分类、索引状态）。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  // ========== Workflow Tools ==========
+  {
+    type: 'function',
+    function: {
+      name: 'list_workflows',
+      description: '列出所有可用的运维工作流模板。当用户需要执行复合操作（如创建测试环境、批量快照、维护准备等）时，先列出可用 workflow。',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'describe_workflow',
+      description: '查看某个工作流的详细步骤和参数说明。',
+      parameters: {
+        type: 'object',
+        properties: {
+          workflow_id: { type: 'string', description: '工作流 ID，如 create-test-env' }
+        },
+        required: ['workflow_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'execute_workflow',
+      description: '执行一个预定义的运维工作流。⚠️ 涉及创建/删除操作的 workflow 执行前需告知用户步骤并获得确认。可用 workflow: create-test-env（创建测试环境）、cleanup-stopped-vms（清理已停止VM）、batch-vm-snapshot（批量快照）、host-maintenance-prep（物理机维护准备）',
+      parameters: {
+        type: 'object',
+        properties: {
+          workflow_id: { type: 'string', description: '工作流 ID' },
+          params: { type: 'object', description: '工作流参数（参见 describe_workflow 获取详情）' }
+        },
+        required: ['workflow_id']
       }
     }
   }

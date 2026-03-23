@@ -1,30 +1,30 @@
 {
   "manifest_version": 3,
   "name": "ZStack AI Assistant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AI-powered ZStack cloud platform operations assistant",
   "permissions": [
     "sidePanel",
     "storage",
     "activeTab",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*",
     "https://api.openai.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://open.bigmodel.cn/*",
+    "https://api.deepseek.com/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://api.minimax.chat/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "side_panel": {
     "default_path": "sidepanel.html"
   },

@@ -151,6 +151,59 @@ zstack-mcp --transport streamable-http --host 0.0.0.0 --port 8000
 | `get_metric_data` | 获取时序监控数据 | 某台 VM 的 CPU 历史曲线 |
 | `get_metric_summary` | 获取 TopN 聚合排名 | "CPU 使用率最高的 10 台 VM" |
 
+## 代码同步
+
+代码托管在 GitLab（内部）和 GitHub（镜像），master 分支推送后自动同步：
+
+- **GitLab（主仓库）**：`http://dev.zstack.io:9080/zhaohao.chen/zstack-ai-assistant`
+- **GitHub（镜像）**：`https://github.com/HeyMax/zstack-ai-assistant`
+
+> GitLab CI 通过 CI/CD Variables 认证推送到 GitHub，无硬编码凭据。
+
+## Roadmap
+
+ZStack AI Native 化分阶段实施路线。目标：从"查询助手"进化到"智能运维平台"。
+
+### Phase 1 — 基础加固 ✅
+
+> 修复安全问题，建立工程化基础
+
+- [x] 修复 Git remote / CI 中的明文凭据泄露
+- [x] 配置导出加密升级为 AES-256-GCM + PBKDF2（用户密码派生密钥）
+- [x] Chrome Extension 权限最小化（`optional_host_permissions` + 按需注入 content script）
+- [ ] 代码模块化拆分（sidepanel.js / llm.js 拆分为多模块）
+- [ ] System Prompt 和 Tool Definitions 外部化（JSON/YAML 配置，支持热更新）
+- [ ] 精简 Tool Definitions（移除 15 个快捷工具，只保留 7 通用 + 6 MCP = 13 个）
+- [ ] 修复 `getVersion()` 重复定义、`sessionUsage` 重复声明、`_callOpenAIStream` 重复错误处理
+- [ ] 补齐测试覆盖率（LLM Provider 适配 mock 测试、ZStack API Client 测试）
+
+### Phase 2 — 智能增强 🚧
+
+> 从"查询助手"进化为"智能运维 Agent"
+
+- [ ] **2.1 运维 Playbook 引擎** — 将常见运维场景（性能诊断、容量巡检、日常巡检）封装为标准 SOP，LLM 检测到用户意图后自动执行多步推理
+- [ ] **2.2 主动监控告警** — 后台轮询 ZWatch 告警 → Chrome Notification 推送 → 点击通知直接进入排查对话 *(需对接 ZStack 平台，排期靠后)*
+- [ ] **2.3 操作编排引擎** — YAML 定义 Workflow 模板（支持并行/串行/循环），LLM 理解用户意图后选择并执行预定义工作流
+- [ ] **2.4 知识库集成（RAG）** — MCP Server 新增 `search_docs` 工具，对接 ZStack 官方文档和运维知识库
+
+### Phase 3 — 平台 AI Native
+
+> 从浏览器插件进化为平台级 AI 能力
+
+- [ ] 嵌入 ZStack UI 成为原生功能组件
+- [ ] 引入 AI Gateway 服务（多用户/多租户）
+- [ ] 基于 IAM2 角色的自然语言权限控制
+- [ ] 智能容量规划（历史趋势分析 + 资源耗尽预测 + 自动扩容建议）
+
+### Phase 4 — AI 自动化运维
+
+> 从人驱动变为 AI 驱动
+
+- [ ] AIOps 自愈（异常检测 → 自动诊断 → 人工审批 → 执行修复）
+- [ ] ChatOps 集成（钉钉/飞书/企微机器人）
+- [ ] 多集群联邦管理
+- [ ] 自定义 Agent（用户定义运维 Agent 的调度策略和权限范围）
+
 ## 详细信息
 
 请参阅 [RELEASE.md](RELEASE.md) 了解完整的功能说明和版本信息。
