@@ -134,3 +134,9 @@ target/
 # ==========================
 run_complex_tests_output.json
 .venv/
+
+# ==========================
+# 知识库索引（本地构建，体积大不提交）
+# python3 scripts/build_doc_index.py 重新生成
+# ==========================
+data/docs/index.json

@@ -1,0 +1,205 @@
+# 错误码相关接口 - 系统全局相关
+
+*Source: https://www.zstack.io/help/dev_manual/dev_guide/v5/8.6.html*
+
+---
+
+## 错误码相关接口
+
+---
+
+## 查看系统错误码(GetElaborations)
+
+
+
+### API请求
+
+ URLs
+
+```
+GET zstack/v1/errorcode/elaborations
+```
+
+ Headers
+
+```
+Authorization: OAuth the-session-uuid
+```
+
+ Curl示例
+
+```
+curl -H "Content-Type: application/json;charset=UTF-8" \ -H "Authorization: OAuth b86c9016b4f24953a9edefb53ca0678c" \ -X GET http://localhost:8080/zstack/v1/errorcode/elaborations?category=BS&regex=certificate has expired or is not yet valid
+```
+
+ 参数列表
+
+| 名字 | 类型 | 位置 | 描述 | 可选值 | 起始版本 |
+| --- | --- | --- | --- | --- | --- |
+| category (可选) | String | query | 错误码的类别，指向资源或服务的类别，例如HOST |  | 3.3.0 |
+| regex (可选) | String | query | 错误码关键字 |  | 3.3.0 |
+| code (可选) | String | query | 错误代码，与category一起使用 |  | 3.6.0 |
+| systemTags (可选) | List | query | 系统标签 |  | 3.3.0 |
+| userTags (可选) | List | query | 用户标签 |  | 3.3.0 |
+
+
+
+### API返回
+
+ 返回示例
+
+```
+{   "contents": [     {       "category": "HOST",       "code": "1003",       "regex": "host[uuid:%s, name:%s] is in status[%s], cannot perform required operation",       "message_cn": "物理机正处于[停止]状态，不能进行该操作",       "message_en": "Host is in status[Stopped], cannot perform required operation",       "source": "zstack",       "method": "regex",       "distance": 0.0     }   ] }
+```
+
+
+
+| 名字 | 类型 | 描述 | 起始版本 |
+| --- | --- | --- | --- |
+| error | ErrorCode | 错误码，若不为null，则表示操作失败, 操作成功时该字段为null。 详情参考[error] | 3.3.0 |
+| contents | List | 详情参考[contents] | 3.3.0 |
+
+ #error
+
+| 名字 | 类型 | 描述 | 起始版本 |
+| --- | --- | --- | --- |
+| code | String | 错误码号，错误的全局唯一标识，例如SYS.1000, HOST.1001 | 0.6 |
+| description | String | 错误的概要描述 | 0.6 |
+| details | String | 错误的详细信息 | 0.6 |
+| elaboration | String | 保留字段，默认为null | 0.6 |
+| opaque | LinkedHashMap | 保留字段，默认为null | 0.6 |
+| cause | ErrorCode | 根错误，引发当前错误的源错误，若无原错误，该字段为null | 0.6 |
+
+ #contents
+
+| 名字 | 类型 | 描述 | 起始版本 |
+| --- | --- | --- | --- |
+| category | String | 错误码所属目录 | 3.3.0 |
+| code | String | 错误码代号 | 3.3.0 |
+| regex | String | 错误码匹配关键字 | 3.3.0 |
+| message_cn | String | 错误码内容中文 | 3.3.0 |
+| message_en | String | 错误码内容英文 | 3.3.0 |
+| source | String | 错误来源 | 3.3.0 |
+| method | String | 匹配方法，distance(字符串比较)或regex(正则) | 3.6.0 |
+| distance | Double | 若使用distance匹配，此处为精确度(1为最精确) | 3.6.0 |
+
+
+
+### SDK示例
+
+ Java SDK
+
+```
+GetElaborationsAction action = new GetElaborationsAction(); action.category = "BS"; action.regex = "certificate has expired or is not yet valid"; action.sessionId = "b86c9016b4f24953a9edefb53ca0678c"; GetElaborationsAction.Result res = action.call();
+```
+
+ Python SDK
+
+```
+GetElaborationsAction action = GetElaborationsAction() action.category = "BS" action.regex = "certificate has expired or is not yet valid" action.sessionId = "b86c9016b4f24953a9edefb53ca0678c" GetElaborationsAction.Result res = action.call()
+```
+
+---
+
+### 查看错误码目录列表(GetElaborationCategories)
+
+
+
+#### API请求
+
+ URLs
+
+```
+GET zstack/v1/errorcode/elaborations/categories
+```
+
+ Headers
+
+```
+Authorization: OAuth the-session-uuid
+```
+
+ Curl示例
+
+```
+curl -H "Content-Type: application/json;charset=UTF-8" \
+-H "Authorization: OAuth b86c9016b4f24953a9edefb53ca0678c" \
+-X GET http://localhost:8080/zstack/v1/errorcode/elaborations/categories
+```
+
+ 参数列表
+
+| 名字 | 类型 | 位置 | 描述 | 可选值 | 起始版本 |
+| --- | --- | --- | --- | --- | --- |
+| systemTags (可选) | List | query | 系统标签 |  | 4.5.0 |
+| userTags (可选) | List | query | 用户标签 |  | 4.5.0 |
+
+
+
+#### API返回
+
+ 返回示例
+
+```
+{
+  "categories": [
+    {
+      "category": "ACCOUNT",
+      "num": 5.0
+    },
+    {
+      "category": "BS",
+      "num": 3.0
+    },
+    {
+      "category": "VM",
+      "num": 20.0
+    }
+  ]
+}
+```
+
+
+
+| 名字 | 类型 | 描述 | 起始版本 |
+| --- | --- | --- | --- |
+| error | ErrorCode | 错误码，若不为null，则表示操作失败, 操作成功时该字段为null。 详情参考[error] | 4.5.0 |
+| categories | List | 详情参考[categories] | 4.5.0 |
+
+ #error
+
+| 名字 | 类型 | 描述 | 起始版本 |
+| --- | --- | --- | --- |
+| code | String | 错误码号，错误的全局唯一标识，例如SYS.1000, HOST.1001 | 4.5.0 |
+| description | String | 错误的概要描述 | 4.5.0 |
+| details | String | 错误的详细信息 | 4.5.0 |
+| elaboration | String | 保留字段，默认为null | 4.5.0 |
+| opaque | LinkedHashMap | 保留字段，默认为null | 4.5.0 |
+| cause | ErrorCode | 根错误，引发当前错误的源错误，若无原错误，该字段为null | 4.5.0 |
+
+ #categories
+
+| 名字 | 类型 | 描述 | 起始版本 |
+| --- | --- | --- | --- |
+| category | String | 目录名称 | 4.5.0 |
+| num | Integer | 目录下的错误码数目 | 4.5.0 |
+
+
+
+#### SDK示例
+
+ Java SDK
+
+```
+GetElaborationCategoriesAction action = new GetElaborationCategoriesAction();
+action.sessionId = "b86c9016b4f24953a9edefb53ca0678c";
+GetElaborationCategoriesAction.Result res = action.call();
+```
+
+ Python SDK
+
+```
+GetElaborationCategoriesAction action = GetElaborationCategoriesAction()
+action.sessionId = "b86c9016b4f24953a9edefb53ca0678c"
+GetElaborationCategoriesAction.Result res = action.call()
+```
