@@ -552,6 +552,20 @@ async function connectZStack() {
 
   setStatus('connecting', '连接中...');
 
+  // 请求访问目标主机的权限（optional_host_permissions）
+  try {
+    const origin = new URL(endpoint).origin + '/*';
+    const granted = await chrome.permissions.request({ origins: [origin] });
+    if (!granted) {
+      setStatus('disconnected', '权限被拒绝');
+      showError('需要授权访问 ZStack API 地址，请在弹窗中允许');
+      return;
+    }
+  } catch (permErr) {
+    // 权限已有或 API 不可用时忽略，继续尝试连接
+    console.warn('Permission request:', permErr);
+  }
+
   // 先尝试连接，连接成功后再保存
   try {
     zstack.configure(endpoint);
@@ -656,6 +670,11 @@ function setupMCPEventListeners() {
 
   btnTestMcp?.addEventListener('click', async () => {
     const url = mcpUrlEl.value.trim() || 'http://localhost:8000';
+    // 请求 MCP Server 主机访问权限
+    try {
+      const origin = new URL(url).origin + '/*';
+      await chrome.permissions.request({ origins: [origin] });
+    } catch { /* ignore */ }
     mcpStatus.textContent = '正在测试连接...';
     mcpStatus.style.color = '';
     const testClient = new MCPClient(url);
