@@ -17,7 +17,8 @@
     "https://api.deepseek.com/*",
     "https://dashscope.aliyuncs.com/*",
     "https://api.minimax.chat/*",
-    "https://api.moonshot.ai/*"
+    "https://api.moonshot.ai/*",
+    "https://api.moonshot.cn/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

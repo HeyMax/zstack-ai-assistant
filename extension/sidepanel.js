@@ -492,7 +492,7 @@ const PROVIDER_MODELS = {
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
   minimax: ['MiniMax-M2.5', 'MiniMax-M2.5-highspeed', 'MiniMax-M2.1', 'MiniMax-M2.1-highspeed', 'MiniMax-M1', 'MiniMax-Text-01'],
-  kimi: ['moonshot-v1-auto', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k']
+  kimi: ['kimi-k2.5', 'kimi-k2-thinking', 'kimi-k2-turbo-preview', 'moonshot-v1-auto', 'moonshot-v1-128k']
 };
 
 const PROVIDER_DEFAULTS = {
@@ -502,7 +502,7 @@ const PROVIDER_DEFAULTS = {
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus',
   minimax: 'MiniMax-M2.5',
-  kimi: 'moonshot-v1-auto'
+  kimi: 'kimi-k2.5'
 };
 
 function updateModelPlaceholder() {
