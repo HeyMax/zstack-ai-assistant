@@ -18,7 +18,8 @@
     "https://dashscope.aliyuncs.com/*",
     "https://api.minimax.chat/*",
     "https://api.moonshot.ai/*",
-    "https://api.moonshot.cn/*"
+    "https://api.moonshot.cn/*",
+    "https://coding.dashscope.aliyuncs.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

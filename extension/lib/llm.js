@@ -70,7 +70,8 @@ export class LLMEngine {
     deepseek: 'https://api.deepseek.com/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     minimax: 'https://api.minimax.chat/v1',
-    kimi: 'https://api.moonshot.cn/v1'
+    kimi: 'https://api.moonshot.cn/v1',
+    bailian: 'https://coding.dashscope.aliyuncs.com/v1'
   };
 
   // Default model per provider
@@ -81,11 +82,12 @@ export class LLMEngine {
     deepseek: 'deepseek-chat',
     qwen: 'qwen-turbo',
     minimax: 'MiniMax-Text-01',
-    kimi: 'kimi-k2.5'
+    kimi: 'kimi-k2.5',
+    bailian: 'qwen3-coder-plus'
   };
 
   // Providers that use OpenAI-compatible API format
-  static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen', 'minimax', 'kimi']);
+  static OPENAI_COMPAT = new Set(['openai', 'glm', 'deepseek', 'qwen', 'minimax', 'kimi', 'bailian']);
 
   async chat(userMessage, onEvent) {
     const msgSnapshot = this.messages.length;

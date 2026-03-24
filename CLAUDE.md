@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ZStack AI Assistant — a Chrome extension (Manifest V3) that provides natural language ops management for ZStack cloud platform. Supports 50+ resource types, 7 LLM providers (Claude, GPT, GLM, DeepSeek, Qwen, MiniMax, Kimi), and optional MCP server integration for API discovery and monitoring.
+ZStack AI Assistant — a Chrome extension (Manifest V3) that provides natural language ops management for ZStack cloud platform. Supports 50+ resource types, 8 LLM providers (Claude, GPT, GLM, DeepSeek, Qwen, MiniMax, Kimi, Bailian), and optional MCP server integration for API discovery and monitoring.
 
 **Production branch**: `release/v1.1` (master is dev, may have bugs)
 
