@@ -20,7 +20,7 @@
 - **双查询模式** — 精简模式（日常巡检）/ 全量模式（资源盘点）
 - **流式响应** — 实时逐字输出，支持停止生成，思考过程可视化
 - **Token 消耗统计** — 实时显示本次 + 累计 Token 消耗
-- **6 家模型厂商** — Claude、GLM、GPT、DeepSeek、通义千问、MiniMax，支持自定义代理
+- **7 家模型厂商** — Claude、GLM、GPT、DeepSeek、通义千问、MiniMax、Kimi，支持自定义代理
 - **纯客户端** — 所有数据在浏览器本地处理，密码 SHA-512 哈希，不经过第三方
 
 ## 快速开始
@@ -64,7 +64,7 @@
 ## 技术架构
 
 ```
-用户 ──→ Chrome Side Panel ──→ LLM Engine ──→ OpenAI/Anthropic/MiniMax API
+用户 ──→ Chrome Side Panel ──→ LLM Engine ──→ OpenAI/Anthropic/MiniMax/Kimi API
                                     │
                                     ├──→ ZStack Client ──→ ZStack REST API + ZQL
                                     │
@@ -97,6 +97,7 @@
 | DeepSeek | DeepSeek-Chat | ✅ |
 | 阿里通义 | Qwen-Plus / Qwen-Max | ✅ |
 | MiniMax | MiniMax-M2.5 | ✅ |
+| Kimi (Moonshot) | moonshot-v1-auto / v1-128k | ✅ |
 
 ## 对接 ZStack MCP Server（可选）
 

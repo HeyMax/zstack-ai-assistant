@@ -491,7 +491,8 @@ const PROVIDER_MODELS = {
   glm: ['GLM-5', 'glm-4-plus', 'glm-4', 'glm-4-flash', 'glm-4-long'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   qwen: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
-  minimax: ['MiniMax-M2.5', 'MiniMax-M2.5-highspeed', 'MiniMax-M2.1', 'MiniMax-M2.1-highspeed', 'MiniMax-M1', 'MiniMax-Text-01']
+  minimax: ['MiniMax-M2.5', 'MiniMax-M2.5-highspeed', 'MiniMax-M2.1', 'MiniMax-M2.1-highspeed', 'MiniMax-M1', 'MiniMax-Text-01'],
+  kimi: ['moonshot-v1-auto', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k']
 };
 
 const PROVIDER_DEFAULTS = {
@@ -500,7 +501,8 @@ const PROVIDER_DEFAULTS = {
   glm: 'glm-4-flash',
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus',
-  minimax: 'MiniMax-M2.5'
+  minimax: 'MiniMax-M2.5',
+  kimi: 'moonshot-v1-auto'
 };
 
 function updateModelPlaceholder() {
