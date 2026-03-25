@@ -265,6 +265,13 @@ export class ZStackClient {
     const text = await res.text();
     let data;
     try { data = JSON.parse(text); } catch { data = text; }
+
+    // ZStack 异步 API：HTTP 202 + body 包含 location 字段
+    // 响应格式: {"apiTimeout": 1800000, "location": "http://.../zstack/v1/api-jobs/UUID"}
+    if (res.status === 202 && data?.location) {
+      return this._pollAsyncJob(data.location, data.apiTimeout);
+    }
+
     if (!res.ok) {
       const msg = data?.error?.details || data?.error?.description
         || (typeof data === 'string' && data.length < 200 ? data : null)
@@ -272,6 +279,84 @@ export class ZStackClient {
       throw new Error(msg);
     }
     return data;
+  }
+
+  /**
+   * 轮询 ZStack 异步任务直到完成
+   * ZStack 异步 API 返回 location URL，需要 GET 轮询：
+   *   - HTTP 200 + body: 任务完成，返回结果
+   *   - HTTP 202 / 503: 任务仍在执行，继续轮询
+   *   - HTTP 4xx/5xx + error: 任务失败
+   *
+   * @param {string} locationUrl - ZStack 返回的 job URL（可能是内部 IP）
+   * @param {number} apiTimeout - ZStack 给出的超时时间（毫秒），默认 3 分钟
+   */
+  async _pollAsyncJob(locationUrl, apiTimeout = 180000) {
+    // ZStack 返回的 location 可能指向内部 IP（如 192.168.x.x），
+    // 需要替换为我们配置的 endpoint
+    const jobPath = locationUrl.replace(/^https?:\/\/[^/]+/, '');
+    const pollUrl = `${this.endpoint}${jobPath}`;
+
+    const pollInterval = 2000;   // 每 2 秒轮询一次
+    const maxWait = Math.min(apiTimeout || 180000, 300000); // 最多等 5 分钟
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWait) {
+      await new Promise(r => setTimeout(r, pollInterval));
+
+      try {
+        const res = await fetch(pollUrl, {
+          headers: this._headers(), mode: "cors", cache: "no-cache", redirect: "follow"
+        });
+
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch { data = text; }
+
+        // 202 = 仍在执行
+        if (res.status === 202) continue;
+
+        // 200 = 完成（但要排除空 body 的情况）
+        if (res.status === 200) {
+          if (data && typeof data === 'object') {
+            // 检查是否有错误
+            if (data.error) {
+              throw new Error(data.error.details || data.error.description || JSON.stringify(data.error));
+            }
+            return data;
+          }
+          // 空 body 或非 JSON 的 200，视为完成
+          return data || { success: true };
+        }
+
+        // 503 在 ZStack 中有两种含义：
+        // 1. 任务仍在执行（无 error）→ 继续轮询
+        // 2. 任务失败（有 error body）→ 抛错
+        if (res.status === 503) {
+          if (data?.error) {
+            throw new Error(data.error.details || data.error.description || `任务失败: HTTP 503`);
+          }
+          continue; // 无 error body，视为仍在执行
+        }
+
+        // 其他错误状态
+        if (!res.ok) {
+          const msg = data?.error?.details || data?.error?.description || `任务失败: HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+
+        return data;
+      } catch (e) {
+        // 网络错误时继续重试，而非立即失败
+        if (e.name === 'TypeError' && e.message.includes('fetch')) {
+          console.warn('Poll network error, retrying...', e.message);
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    throw new Error(`异步任务超时（已等待 ${Math.round(maxWait / 1000)} 秒）。任务可能仍在后台执行，请在云平台确认。`);
   }
 
   // Wrap a request fn with auto-retry on session expiry
